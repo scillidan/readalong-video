@@ -1,0 +1,30 @@
+[project]
+name = "readalong-video"
+version = "0.1.0"
+description = "Forced alignment of narrated audio to standard .md text, rendered onto booklet PDF pages as an mp4."
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.8",
+    "torchaudio>=2.8",
+    "torchvision>=0.23",
+    "whisperx>=3.8",
+    "faster-whisper>=1.2",
+    "mutagen>=1.47",
+    "pypinyin>=0.53",
+    "jieba>=0.42",
+    "pillow>=11",
+    "pymupdf>=1.26",
+    "python-dotenv>=1.0",
+]
+
+[tool.uv]
+# Windows PyPI torch is CPU-only; use the cu128 index (driver CUDA 13.1 is backward compatible).
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
