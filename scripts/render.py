@@ -215,7 +215,10 @@ def stage(
 
     duration = timed["audio_duration_ms"]
     if frames[0]["t0"] > 0:
-        frames.insert(0, {**frames[0], "t0": 0, "t1": frames[0]["t0"]})
+        # lead-in: nothing is read yet (e.g. a narrated chapter title that is
+        # not part of the reference text) -- show the page without lighting
+        # the first unit ahead of time
+        frames.insert(0, {**frames[0], "rects": [], "t0": 0, "t1": frames[0]["t0"]})
     if frames[-1]["t1"] < duration:
         frames.append({**frames[-1], "t0": frames[-1]["t1"], "t1": duration})
 
