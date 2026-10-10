@@ -20,7 +20,11 @@ def stage(run: C.Run, mp3: Path) -> dict:
         "\n".join(rinsed_lines) + "\n", encoding="utf-8", newline="\n"
     )
     (out / "segments.json").write_text(
-        json.dumps({"file": str(run.target), **doc}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"file": str(run.target), "audio": str(mp3), **doc},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
         newline="\n",
     )
@@ -53,6 +57,7 @@ def stage(run: C.Run, mp3: Path) -> dict:
             "status": "done",
             "dir": str(out),
             "duration_ms": duration_ms,
+            "mp3": str(mp3),
             "wav": str(wav),
             "segments": str(out / "segments.json"),
             "summary": summary,
@@ -64,10 +69,12 @@ def stage(run: C.Run, mp3: Path) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("target")
+    ap.add_argument("--media", default="", help="audio file or directory (see add)")
     args = ap.parse_args()
-    target = C.resolve_input(args.target)
+    target = C.require_md(C.resolve_input(args.target), "ingest")
+    mp3 = C.resolve_media(target, args.media)
     run = C.Run(target)
-    print(json.dumps(stage(run, Path(str(target) + ".mp3")), ensure_ascii=False))
+    print(json.dumps(stage(run, mp3), ensure_ascii=False))
 
 
 if __name__ == "__main__":

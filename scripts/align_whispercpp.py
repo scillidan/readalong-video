@@ -217,7 +217,7 @@ def main() -> None:
         "--reuse", action="store_true", help="skip transcription if whisper.json exists"
     )
     args = ap.parse_args()
-    target = C.resolve_input(args.target)
+    target = C.require_md(C.resolve_input(args.target), "alignw")
     ingest = C.latest_stage(C.stem_of(target), "02_ingest")
     if not ingest:
         raise SystemExit("no ingest run found; run `just ingest <target>` first")

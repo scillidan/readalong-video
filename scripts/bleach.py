@@ -14,7 +14,7 @@ import _common as C
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 START_RE = re.compile(r"\*{3}\s*START OF (?:THE|THIS) PROJECT GUTENBERG", re.I)
 END_RE = re.compile(r"\*{3}\s*END OF (?:THE|THIS) PROJECT GUTENBERG", re.I)
-# Chinese chapter headings (第N章) and illustration markers are also recognized.
+# Chinese chapter headings and illustration markers are also recognized.
 CHAPTER_RE = re.compile(
     r"^(?:chapter\s+[\divxlcdm]+|section\s+[\divxlcdm]+|part\s+[\divxlcdm]+|"
     r"第[一二三四五六七八九十百千0-9]+[章节回卷部]|卷[一二三四五六七八九十0-9]+)$",
@@ -170,7 +170,7 @@ def main() -> None:
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
-    src = C.resolve_input(args.target)
+    src = C.require_md(C.resolve_input(args.target), "bleach")
     if args.style != "gutenberg":
         raise SystemExit(f"unsupported style: {args.style}")
     if not START_RE.search(src.read_text(encoding="utf-8", errors="replace")):

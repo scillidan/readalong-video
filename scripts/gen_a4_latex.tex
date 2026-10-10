@@ -1,0 +1,640 @@
+% Shared LaTeX post template.
+% The wrapper file must define:
+%   \poststem      - stem of the generated output directory
+%   \postlayout    - 'a4' or 'a5'
+%   \postimagedir  - relative path from the wrapper to the images directory
+%   \posttwocolumn - define this for two-column layouts
+
+\ifdefined\postimagedir\else\def\postimagedir{}\fi
+
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\usepackage{responsive}
+\usepackage{fitbox}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{xurl}
+\usepackage{relsize}
+
+% URL line breaking: xurl by default allows a break after every character,
+% which splits URLs mid-word (e.g. right after "https:") and reads badly.
+% Restrict preferred breaks to natural URL separators; letters, digits and ":"
+% still break, but only as a last resort (\UrlBigBreaks) so a long URL never
+% overflows the metadata frame.
+\def\UrlBreaks{\do\/\do\.\do\-\do\_\do\&\do\=\do\?\do\%\do\#\do\+\do\@\do\!}
+\def\UrlBigBreaks{\do\:\do\a\do\b\do\c\do\d\do\e\do\f\do\g\do\h\do\i\do\j\do\k\do\l\do\m\do\n\do\o\do\p\do\q\do\r\do\s\do\t\do\u\do\v\do\w\do\x\do\y\do\z\do\A\do\B\do\C\do\D\do\E\do\F\do\G\do\H\do\I\do\J\do\K\do\L\do\M\do\N\do\O\do\P\do\Q\do\R\do\S\do\T\do\U\do\V\do\W\do\X\do\Y\do\Z\do0\do1\do2\do3\do4\do5\do6\do7\do8\do9}
+
+% Tol Bright colors from latex-demo/code-demo.tex, defined directly so the
+% colorblind package (not in TeX Live 2023 base) is not required.
+\definecolor{T-Q-B0}{RGB}{187,187,187}
+\definecolor{T-Q-B3}{RGB}{34,136,51}
+\definecolor{T-Q-B5}{RGB}{238,102,119}
+% Load markdown *before* enumitem. Loading enumitem before markdown triggers a
+% known conflict in older markdown package releases: the package patches list
+% environments at \begin{document} and leaves \enit@after undefined, causing
+% "! Undefined control sequence. \enit@enditemize ->\enit@after ..." when a
+% markdown list ends. See Witiko/markdown#560.
+\usepackage[underscores=true, fencedCode=true, notes=true, texMathDollars=false, rawAttribute=true]{markdown}
+\usepackage{enumitem}
+\usepackage{hyperref}
+% Print-like output: links stay plain text (no colored boxes) but remain
+% clickable. Endnote cross-links rely on this too.
+\hypersetup{hidelinks}
+\usepackage{microtype}
+% Tracking is only supported by pdfTeX 1.40+; keep protrusion for XeLaTeX.
+\microtypesetup{protrusion=true}
+\usepackage{ragged2e}
+
+% The body font is monospace, whose inter-word glue has almost no natural
+% stretch, so fully-justified lines otherwise end up with big gaps or overfull
+% boxes. \emergencystretch lets TeX open up extra stretch to smooth line
+% lengths, and the tolerance/badness limits keep "overfull" lines from turning
+% into errors. Pair this with the CJK hanging punctuation above.
+\emergencystretch=1.5em\relax
+\tolerance=1200\relax
+\hbadness=1400\relax
+
+% Paragraph first-line indent: two full-width CJK characters (= 4 half-width
+% spaces) on the monospace grid. The responsive package forces \parindent to
+% 1em/1.5em in its own \AtBeginDocument hook, so this must run after it.
+% 
+% Body text is set ragged-right: the monospace font has almost no inter-word
+% stretch, so fully-justified lines either leave big gaps or force aggressive
+% hyphenation (e.g. breaking "Lovelock" as "Love-lock"). A small raggedness
+% keeps the right edge mostly tidy while letting lines break naturally.
+\AtBeginDocument{%
+  \setlength{\parindent}{2em}%
+  \RaggedRight
+}
+
+% Fonts: use Sarasa Mono SC everywhere. xeCJK is still loaded so CJK line
+% breaking, punctuation spacing, and character-class routing continue to work,
+% but the Latin and CJK fonts are identical so there is no visual switching.
+\setmainfont{Sarasa Mono SC}
+\setmonofont{Sarasa Mono SC}
+\setCJKmainfont{Sarasa Mono SC}
+\setCJKsansfont{Sarasa Mono SC}
+\setCJKmonofont{Sarasa Mono SC}
+
+% Route non-Latin ranges (Cyrillic, arrows, spaces/dashes) through the same
+% CJK line-breaking rules as CJK characters.
+\xeCJKDeclareCharClass{CJK}{"00A0 -> "00A0}
+\xeCJKDeclareCharClass{CJK}{"0400 -> "052F}
+\xeCJKDeclareCharClass{CJK}{"2000 -> "206F}
+\xeCJKDeclareCharClass{CJK}{"2070 -> "209F}
+\xeCJKDeclareCharClass{CJK}{"2100 -> "214F}
+\xeCJKDeclareCharClass{CJK}{"2150 -> "218F}
+\xeCJKDeclareCharClass{CJK}{"2190 -> "21FF}
+
+% Curly quotes must stay Western punctuation so apostrophes in English do not
+% pick up CJK spacing rules.
+\xeCJKDeclareCharClass{Default}{"2018, "2019, "201C, "201D}
+
+% Disable the visible CJK/Latin gap but keep a zero-width, breakable glue so a
+% line can still break between CJK and Latin (e.g. "...人的/A.O.史密斯"). The
+% default CJKecglue is a full space; an empty glue removed the gap but also the
+% break opportunity, forcing breaks at CJK-CJK boundaries only.
+\xeCJKsetup{CJKecglue={\hskip 0pt plus 0.08em}}
+
+% Long digit runs with thousands separators (e.g. "2,400,000") are a single
+% unbreakable Latin token and can overflow the column. Give the ASCII comma its
+% own interchar class and plant a near-forbidden break after "comma before
+% digit/letter" so TeX only splits there to avoid an overfull line. Ordinary
+% short numbers are untouched.
+\newXeTeXintercharclass \postdigitcomma
+\XeTeXcharclass `\, \postdigitcomma
+\XeTeXinterchartoks \postdigitcomma 0 = {\penalty9990\relax}
+
+% CJK punctuation uses xeCJK's default style (full-width, inline, with the
+% built-in kinsoku rules). A custom "postpunct" style with hanging/kerning
+% (enabled-hanging, optimize-kerning) was removed: it added micro-adjustments
+% that made line wrapping hard to predict without a clear visual win.
+
+% Shared narrow block width for images, blockquotes, code blocks, etc.
+% Indented by 4 half-width monospace spaces (= 2em = two CJK full-width
+% characters) on each side. Defined as a macro so it is re-evaluated against
+% the current \linewidth inside each environment (single column, two-column,
+% or paracol column).
+\newlength{\postindent}
+\setlength{\postindent}{2em}
+\newcommand{\postnarrowwidth}{\dimexpr\linewidth-2\postindent\relax}
+
+% Narrower indent (1em = 2 half-width spaces) for blockquotes and endnotes.
+\newlength{\postquoteindent}
+\setlength{\postquoteindent}{1em}
+\newcommand{\postquotewidth}{\dimexpr\linewidth-2\postquoteindent\relax}
+
+% Do not stretch short columns to align bottoms -- this alone removes a lot of
+% unwanted whitespace in two-column output.
+\raggedbottom
+
+% Responsive design: let the package choose a readable base size.
+% In two-column mode we measure against the column, not the full page.
+\ifdefined\posttwocolumn
+  \ResponsiveSetup{boxwidth=\columnwidth, characters=50}
+\fi
+
+% Code blocks: Tol Bright colors from latex-demo/code-demo.tex. The visible
+% frame is drawn by an \fbox in \postinputfencedcode, not by listings: an
+% \fbox never cracks on wrapped lines, and its box has exact dimensions so
+% \postblock can measure the space above from the frame's top edge.
+% Vertical spacing is handled by the wrapper, so keep aboveskip/belowskip
+% at 0pt inside listings.
+\lstdefinestyle{postcode}{
+  language=[LaTeX]TeX,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{T-Q-B3},
+  commentstyle=\color{T-Q-B0},
+  stringstyle=\color{T-Q-B5},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+  aboveskip=0pt,
+  belowskip=0pt,
+  postbreak=\mbox{\textcolor{T-Q-B0}{$\hookrightarrow$}\space},
+}
+% Plain variant for fenced blocks with no/unknown language: same spacing,
+% but no syntax highlighting (keeps plain snippets readable without
+% LaTeX-keyword coloring).
+% Escape inside is enabled so long URLs can be wrapped in \url{} and remain
+% a single clickable hyperlink even when visually broken.
+\lstdefinestyle{postcodeplain}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+  aboveskip=0pt,
+  belowskip=0pt,
+  postbreak=\mbox{\textcolor{T-Q-B0}{$\hookrightarrow$}\space},
+  escapeinside={(*@}{@*)},
+}
+\lstset{style=postcode}
+
+% Article metadata block. Looks like a listings frame but is typeset in text
+% mode: URLs are real hyperlinks (\url) that break anywhere via xurl, and an
+% \fbox never cracks the way a listings frame does on wrapped lines. The
+% generator emits this environment inside a ```{=tex} raw block.
+% Wrapped continuation lines get a 2em hanging indent (\everypar because
+% \hangindent resets after each paragraph).
+\newsavebox{\postmetadatabox}
+\newenvironment{postmetadata}{%
+  \begin{lrbox}{\postmetadatabox}%
+  \begin{minipage}{\dimexpr\postnarrowwidth-2\fboxsep-2\fboxrule\relax}%
+  \footnotesize\raggedright
+  \everypar{\hangindent=2em\hangafter=1}%
+  % Match the inner top inset of the code blocks (fbox + listings): listings
+  % struts its first line, which puts it ~2.5pt lower than an unstrutted text
+  % line. Without this the metadata text hugs the top border while code text
+  % does not. Calibrated 2026-09 against Sarasa Mono SC footnotesize.
+  \vspace{2.5pt}%
+}{%
+  \end{minipage}%
+  \end{lrbox}%
+  \postblock{\fbox{\usebox{\postmetadatabox}}}%
+}
+
+% Inline code stays close to the listings look. Long literal tokens (paths,
+% URLs, package names) contain no TeX line-break opportunities, so an inline
+% code span wider than the column overflows. \postbreakables re-typesets the
+% span while planting a near-forbidden break (\penalty 9990) after the
+% punctuation characters that read as natural token boundaries; TeX only ever
+% takes such a break to avoid an otherwise-overfull line, so normal short
+% spans are untouched.
+\ExplSyntaxOn
+\int_new:N \l_postbreakpenalty_int
+\int_set:Nn \l_postbreakpenalty_int { 9990 }
+\tl_new:N \l_postbreakables_tl
+\tl_new:N \l_post_search_tl
+\tl_new:N \l_post_repl_tl
+% Break opportunities are planted only after characters that read as natural
+% token boundaries for paths/URLs. % # ~ are deliberately omitted (comment /
+% special chars). TeX only takes these near-forbidden penalties to avoid an
+% otherwise-overfull line, so ordinary short tokens are never split.
+%
+% The token list is transformed in place with \tl_replace_all rather than
+% re-emitted token by token. A token mapper (\tl_map_inline) breaks whenever
+% the content contains a macro that takes an argument -- e.g. a nested
+% \markdownRendererEmphasis inside strong emphasis: the macro is emitted
+% unexpanded, then swallows the next mapped item, raising "Argument of
+% \__tl_map_1:w has an extra }". Replacing punctuation in place keeps every
+% macro adjacent to its argument.
+%
+% \c_underscore_str / \c_ampersand_str are passed through \tl_set:Nx so the
+% search tokens come out catcode 12, matching the markdown body (see
+% \postmarkdowninput); a plain "_" or "&" here would have catcode 8/4 and
+% never match the body.
+\cs_new_protected:Npn \postbreakreplaceone #1 {
+  \tl_set:Nx \l_post_search_tl { #1 }
+  \tl_set_eq:NN \l_post_repl_tl \l_post_search_tl
+  \tl_put_right:Nn \l_post_repl_tl { \penalty \l_postbreakpenalty_int }
+  \exp_args:NNVV \tl_replace_all:Nnn \l_postbreakables_tl \l_post_search_tl \l_post_repl_tl
+}
+\cs_new_protected:Npn \postbreakreplace {
+  \postbreakreplaceone { / }
+  \postbreakreplaceone { . }
+  \postbreakreplaceone { - }
+  \postbreakreplaceone { \c_underscore_str }
+  \postbreakreplaceone { : }
+  \postbreakreplaceone { ? }
+  \postbreakreplaceone { \c_ampersand_str }
+  \postbreakreplaceone { = }
+  \postbreakreplaceone { + }
+}
+\cs_new_protected:Npn \postbreakables #1 {
+  \tl_set:Nn \l_postbreakables_tl { #1 }
+  \postbreakreplace
+  \tl_use:N \l_postbreakables_tl
+}
+\ExplSyntaxOff
+% A literal backslash from markdown arrives as a control sequence, not a
+% character token; give it the same "break only if forced" treatment by
+% overriding the backslash renderer (see \markdownSetup below).
+\newcommand{\postcodespan}[1]{%
+  \textcolor{black}{\texttt{\postbreakables{#1}}}%
+}
+
+% Fenced code blocks are rendered with listings.
+% The markdown package passes #1 (temp file), #2 (language), #3 (language).
+% Only the first language argument is used; the second is accepted so the
+% renderer works with both older and newer markdown package releases.
+\ExplSyntaxOn
+\prop_new:N \g_post_code_languages_prop
+\prop_gset_from_keyval:Nn \g_post_code_languages_prop {
+  bash       = bash,
+  sh         = bash,
+  shell      = bash,
+  zsh        = bash,
+  python     = python,
+  py         = python,
+  javascript = javascript,
+  js         = javascript,
+  typescript = typescript,
+  ts         = typescript,
+  html       = html,
+  css        = css,
+  yaml       = yaml,
+  yml        = yaml,
+  json       = json,
+  rust       = rust,
+  go         = go,
+  c          = c,
+  cpp        = c++,
+  cxx        = c++,
+  cc         = c++,
+  java       = java,
+  kotlin     = kotlin,
+  swift      = swift,
+  ruby       = ruby,
+  rb         = ruby,
+  perl       = perl,
+  php        = php,
+  sql        = SQL,
+  ini        = ini,
+  toml       = ini,
+  diff       = diff,
+  tex        = [LaTeX]TeX,
+  latex      = [LaTeX]TeX,
+  md         = [LaTeX]TeX,
+  text       = {},
+  txt        = {},
+}
+\cs_new_protected:Npn \postinputfencedcode #1 #2 {
+  \group_begin:
+  \tl_set:Nx \l_post_lang_tl { \str_lowercase:n {#2} }
+  \prop_if_in:NVTF \g_post_code_languages_prop \l_post_lang_tl {
+    \tl_set:Nx \l_post_listings_lang_tl
+      { \prop_item:NV \g_post_code_languages_prop \l_post_lang_tl }
+  } {
+    % Unknown language: default to plain listings (no syntax highlighting).
+    \tl_clear:N \l_post_listings_lang_tl
+  }
+  % Width-restricted, centered code block in an \fbox (see the style
+  % comment above). \postblock measures the space above from the frame's
+  % top edge, not from the first listings line.
+  \postblock{
+    \fbox{
+      \begin{minipage}{\dimexpr\postnarrowwidth-2\fboxsep-2\fboxrule\relax}
+      \tl_if_empty:NTF \l_post_listings_lang_tl {
+        \lstinputlisting[style=postcodeplain]{#1}
+      } {
+        \lstinputlisting[style=postcode,language=\l_post_listings_lang_tl]{#1}
+      }
+      \end{minipage}
+    }
+  }
+  \group_end:
+}
+\ExplSyntaxOff
+
+% Notes are appended to \postnotes@acc in the SAME compile run and printed at
+% the end by \postprintendnotes. This avoids the `endnotes` package, which ships
+% markdown-rendered note content (links, %, #, ...) through an aux file whose
+% line breaks / catcode changes break URLs. \long is required because note
+% bodies may span multiple paragraphs (\par).
+%
+% Markers and entries are cross-linked: the in-text superscript [N] jumps to
+% the endnote, the endnote's [N] jumps back to the in-text position. Named
+% destinations are resolved by the PDF viewer, so a single run suffices.
+\newcounter{postendnotecounter}
+\makeatletter
+\def\postnotes@acc{}
+\long\def\postendnote#1{%
+  \stepcounter{postendnotecounter}%
+  % Bake the current number into the accumulator as plain digits; otherwise
+  % \thepostendnotecounter would be expanded later, when all notes share the
+  % final counter value.
+  \edef\@postnotenum{\thepostendnotecounter}%
+  \hypertarget{postnote-ref-\@postnotenum}{}%
+  \textsuperscript{\hyperlink{postnote-def-\@postnotenum}{[\@postnotenum]}}%
+  \expandafter\postendnote@add\expandafter{\@postnotenum}{#1}%
+}
+\long\def\postendnote@add#1#2{%
+  \g@addto@macro\postnotes@acc{\par\noindent
+    \hypertarget{postnote-def-#1}{}\hyperlink{postnote-ref-#1}{[#1]}\ #2}%
+}
+\newcommand{\postprintendnotes}{%
+  \ifnum\value{postendnotecounter}>0
+    % Separate endnotes from the body with the same gap a heading keeps from
+    % the text above it, and give them the same narrow measure as
+    % blockquotes (1em indent on each side).
+    \par\addvspace{\baselineskip}%
+    \noindent\hfill
+    \begin{minipage}{\postquotewidth}%
+    \postnotes@acc
+    \end{minipage}%
+    \hfill\null\par
+  \fi
+}
+\makeatother
+
+% Typography: H1-H3 are bold; H4-H6 (which markdown would otherwise turn
+% into run-in \paragraph/\subparagraph heads that collide with the body
+% text) are rendered as the same kind of left-aligned block headings at the
+% base size, regular weight. Headings are \raggedright so a short title that
+% wraps is not stretched across the line (which read as wide inter-character
+% gaps); it breaks naturally instead. Every heading is distinguished by size
+% and vertical spacing only. Sizes scale relative to the responsive base font so
+% they remain balanced across layouts. The top gap is one line
+% of the heading's OWN leading (switch to the scaled font first, then
+% \baselineskip reflects the heading size), so a bigger heading gets a
+% proportionally bigger break above it; the bottom gap stays a small
+% fraction so the heading reads as belonging to the text below.
+\newcommand{\postheadingone}[1]{%
+  \par\begingroup
+  \relscale{1.4}%
+  \bfseries
+  \raggedright
+  \addvspace{\baselineskip}%
+  \noindent#1\par
+  \addvspace{0.3\baselineskip}%
+  \endgroup
+}
+\newcommand{\postheadingtwo}[1]{%
+  \par\begingroup
+  \relscale{1.2}%
+  \bfseries
+  \raggedright
+  \addvspace{\baselineskip}%
+  \noindent#1\par
+  \addvspace{0.25\baselineskip}%
+  \endgroup
+}
+\newcommand{\postheadingthree}[1]{%
+  \par\begingroup
+  \relscale{1.1}%
+  \bfseries
+  \raggedright
+  \addvspace{\baselineskip}%
+  \noindent#1\par
+  \addvspace{0.2\baselineskip}%
+  \endgroup
+}
+% H4-H6: same display-heading rhythm at the base size, regular weight.
+\newcommand{\postheadinglow}[1]{%
+  \par\begingroup
+  \raggedright
+  \addvspace{\baselineskip}%
+  \noindent#1\par
+  \addvspace{0.15\baselineskip}%
+  \endgroup
+}
+\let\postheadingfour\postheadinglow
+\let\postheadingfive\postheadinglow
+\let\postheadingsix\postheadinglow
+
+% Fitbox defaults: scale images to fit the narrow block width, and shrink
+% them further if they would not fit vertically.
+\fitboxset{
+  maxwidth=\linewidth,
+  maxheight=0.75\textheight,
+  belowboxspace=0pt,
+  minwidth=0.2\linewidth,
+  minheight=0.2\linewidth,
+}
+
+% Shared vertical gap around block-level elements (images, code blocks,
+% blockquotes, the metadata frame, lists). The gap equals one *visible
+% interline gap* (行距): the baseline pitch minus the vertical space the
+% glyphs themselves occupy -- i.e. exactly the whitespace between two
+% consecutive text lines. Measured at \begin{document} from a probe string
+% with a cap-height letter and a descender, after the responsive package
+% has fixed the font size (\baselineskip is only final there).
+\newlength{\postblockgap}
+\AtBeginDocument{%
+  \setbox0=\hbox{Ag}%
+  \setlength{\postblockgap}{\dimexpr\baselineskip-\ht0-\dp0\relax}%
+}
+
+% Uniform block placement: exactly \postblockgap of space above and below,
+% measured from the element's outer box edge -- the frame edge for code
+% blocks and the metadata frame -- not from the first/last baseline inside
+% it. \raisebox{-\height} parks the box's top on the current line and
+% \nointerlineskip keeps TeX's baseline glue from adding extra space.
+\newcommand{\postblock}[1]{%
+  \par\addvspace{\postblockgap}\nointerlineskip
+  \noindent\hfill\raisebox{-\height}{#1}\hfill\null
+  \par\addvspace{\postblockgap}\nointerlineskip
+}
+
+% Per-image height cap. Inside a group we shrink images so the group never
+% becomes taller than one column.
+\newlength{\postimageheight}
+\newif\ifpostgroupmode
+\postgroupmodefalse
+
+% Space to reserve below a fitbox image for its caption, measured from the
+% caption text so fitbox can shrink the image to leave room for both.
+\newlength{\postcaptionheight}
+\newsavebox{\postcaptionbox}
+
+% Print a caption block only when #1 is non-empty.
+% The caption text is left-aligned and spans the same width as the image
+% above it (\linewidth inside the image minipage). The gap between image
+% and caption is exactly one interline gap: \nointerlineskip kills TeX's
+% baseline glue (which would add ~\baselineskip on top of \postblockgap),
+% and the [t] minipage puts the caption's first-line top as the box top.
+\newcommand{\postcaption}[1]{%
+  \if\relax\detokenize{#1}\relax
+  \else
+    \nointerlineskip\vspace{\postblockgap}%
+    \begin{minipage}[t]{\linewidth}%
+      \raggedright
+      \small
+      #1%
+    \end{minipage}%
+    \par
+  \fi
+}
+
+% Group of consecutive standalone images: an unbreakable minipage so the
+% images always move together across a column/page boundary.
+\newenvironment{postimagegroup}{%
+  \par
+  \addvspace{\postblockgap}%
+  \noindent\begin{minipage}{\linewidth}%
+  \postgroupmodetrue
+  \centering
+}{%
+  \postgroupmodefalse
+  \end{minipage}%
+  \par
+  \addvspace{\postblockgap}%
+}
+
+% Markdown renderers ---------------------------------------------------------
+% Blockquote: narrower than code blocks (1em indent each side), upright
+% (not italic), placed with the shared block rhythm. The content is boxed
+% with lrbox so \postblock can measure from the box edges.
+\newsavebox{\postquotebox}
+\newcommand{\postblockquotebegin}{%
+  \begin{lrbox}{\postquotebox}%
+  \begin{minipage}{\postquotewidth}%
+}
+\newcommand{\postblockquoteend}{%
+  \end{minipage}%
+  \end{lrbox}%
+  \postblock{\usebox{\postquotebox}}%
+}
+
+% Lists: narrow indentation; surrounding space comes from the normal
+% interline glue so lists keep the same one-line rhythm as other blocks.
+\setlist[itemize,enumerate]{leftmargin=2em,topsep=0pt,partopsep=0pt,itemsep=0pt,parsep=0pt}
+
+% Image renderer receives: #1=alt(caption), #2=escaped src, #3=raw src.
+%
+% Links are built from the *raw* URL (#3), with every TeX-special character
+% escaped to the control sequence hyperref understands (\# \% \_ ...). Doing
+% this at render time matters: footnote content travels through endnote aux
+% files, where '#' (old hyperref: "Illegal parameter number in \Hy@tempa") and
+% '%' would otherwise be re-interpreted with the wrong catcode and break.
+% Image paths below keep #3 because \includegraphics needs the real filename.
+\ExplSyntaxOn
+\tl_new:N \l_posthref_url_tl
+\cs_new_protected:Npn \posthref #1 #2 {
+  % Work on a detokenized copy so '#'/special tokens keep their catcode
+  % regardless of whether the URL came from the markdown input (catcode 12),
+  % an endnote aux file (catcode 6), or plain text.
+  \tl_clear:N \l_posthref_url_tl
+  \tl_map_inline:Nn { \tl_to_str:n { #2 } } {
+    \str_case:nnF { ##1 } {
+      { \c_hash_str }       { \tl_put_right:Nn \l_posthref_url_tl { \# } }
+      { \c_percent_str }    { \tl_put_right:Nn \l_posthref_url_tl { \% } }
+      { \c_ampersand_str }  { \tl_put_right:Nn \l_posthref_url_tl { \& } }
+      { \c_underscore_str } { \tl_put_right:Nn \l_posthref_url_tl { \_ } }
+      { \c_left_brace_str } { \tl_put_right:Nn \l_posthref_url_tl { \{ } }
+      { \c_right_brace_str }{ \tl_put_right:Nn \l_posthref_url_tl { \} } }
+      { ~ } { \tl_put_right:Nn \l_posthref_url_tl { \textasciitilde {} } }
+      { \c_circumflex_str } { \tl_put_right:Nn \l_posthref_url_tl { \^{} } }
+    } {
+      \tl_put_right:Nn \l_posthref_url_tl { ##1 }
+    }
+  }
+  \href { \l_posthref_url_tl } { #1 }
+}
+\ExplSyntaxOff
+
+\markdownSetup{
+  renderers = {
+    % markdown.sty is loaded before enumitem, so its theme never sees the
+    % enumitem branch: tight lists would fall back to paralist's compactitem
+    % (markdown.sty loads paralist), which ignores the \setlist above and
+    % adds its own \pltopsep glue. Route tight lists through the same
+    % enumitem environments as loose ones.
+    ulBeginTight = {\begin{itemize}},
+    ulEndTight = {\end{itemize}},
+    olBeginTight = {\begin{enumerate}},
+    olEndTight = {\end{enumerate}},
+    image = {
+      % Keep the image and its caption on the same page/column, indented
+      % \postindent (4 half-width spaces) on each side. Inside the minipage
+      % everything uses \linewidth: measuring against \postnarrowwidth again
+      % here would subtract the indent twice and shrink images/captions.
+      \postblock{%
+        \begin{minipage}{\postnarrowwidth}
+        \centering
+        \ifpostgroupmode
+          \setlength{\postimageheight}{0.4\textheight}%
+        \else
+          \setlength{\postimageheight}{0.75\textheight}%
+        \fi
+        \if\relax\detokenize{#1}\relax
+          \setlength{\postcaptionheight}{0pt}%
+        \else
+          \sbox{\postcaptionbox}{%
+            \begin{minipage}{\linewidth}%
+              \raggedright
+              \small
+              #1%
+            \end{minipage}%
+          }%
+          \setlength{\postcaptionheight}{\dimexpr\ht\postcaptionbox
+            +\dp\postcaptionbox+\postblockgap\relax}%
+        \fi
+        \fitbox[
+          maxwidth=\linewidth,
+          maxheight=\postimageheight,
+          belowboxspace=\postcaptionheight,
+        ]{%
+          \includegraphics{\postimagedir#3}%
+        }%
+        \par
+        \postcaption{#1}%
+        \end{minipage}%
+      }%
+    },
+    link = {\posthref{#1}{#3}},
+    emphasis = {{\itshape #1}},
+    strongEmphasis = {{\bfseries \postbreakables{#1}}},
+    % markdown delivers a literal backslash as the `backslash` renderer
+    % (expanding to \textbackslash); append a near-forbidden penalty so a
+    % Windows path can break after its separators only as a last resort.
+    backslash = {\textbackslash{}\penalty9990},
+    headingOne = {\postheadingone{#1}},
+    headingTwo = {\postheadingtwo{#1}},
+    headingThree = {\postheadingthree{#1}},
+    headingFour = {\postheadingfour{#1}},
+    headingFive = {\postheadingfive{#1}},
+    headingSix = {\postheadingsix{#1}},
+    blockQuoteBegin = {\postblockquotebegin},
+    blockQuoteEnd = {\postblockquoteend},
+    inputFencedCode = {\postinputfencedcode{#1}{#2}},
+    codeSpan = {\postcodespan{#1}},
+    note = {\postendnote{#1}},
+  }
+}
+
+% Markdown can contain TeX (`hybrid`); make the special chars inert so they
+% never leak into math/subscript/comment mode.
+\newcommand{\postmarkdowninput}[1]{%
+  \begingroup
+  \catcode`\&=12\relax
+  \catcode`\$=12\relax
+  \catcode`\%=12\relax
+  \catcode`\#=12\relax
+  \catcode`\_=12\relax
+  \catcode`\^=12\relax
+  \catcode`\~=12\relax
+  \markdownInput{#1}%
+  \endgroup
+}

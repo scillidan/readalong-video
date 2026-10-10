@@ -78,10 +78,10 @@ def probe_pdf(pdf: Path | None) -> dict:
     }
 
 
-def stage(run: C.Run, pdf: Path | None) -> dict:
+def stage(run: C.Run, pdf: Path | None, mp3: Path | None) -> dict:
     out = run.stage("01_probe")
     text_info = C.parse_md(run.target.read_text(encoding="utf-8"))
-    audio = probe_audio(Path(str(run.target) + ".mp3"))
+    audio = probe_audio(mp3)
     pdf_info = probe_pdf(pdf)
 
     for name, data in (
@@ -131,19 +131,21 @@ def stage(run: C.Run, pdf: Path | None) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("target")
+    ap.add_argument("--media", default="", help="audio file or directory (see add)")
     ap.add_argument("--pdf", default="")
     ap.add_argument("--pdf-variant", default="")
     ap.add_argument("--pdf-dir", default="")
     args = ap.parse_args()
 
-    target = C.resolve_input(args.target)
+    target = C.require_md(C.resolve_input(args.target), "probe")
+    mp3 = C.resolve_media(target, args.media, strict=False)
     pdf = (
         C.resolve_pdf(target, args.pdf, args.pdf_variant, args.pdf_dir)
         if (args.pdf or args.pdf_variant or C.env_dir("PDF_SOURCE") or args.pdf_dir)
         else None
     )
     r = C.Run(target)
-    summary = stage(r, pdf)
+    summary = stage(r, pdf, mp3)
     print(json.dumps(summary, ensure_ascii=False))
 
 

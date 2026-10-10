@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common as C
 
 ZOOM = 2.0
-PUNCT = set("。！？；，、…")
+# CJK punctuation plus the ASCII forms that NFKC normalization maps them to
+# (，->, 。->. ！->! ？->? ；->; ：->: …->...); 、 keeps its codepoint.
+PUNCT = set("。！？；，、…,.!?;:")
 
 
 def _page_blocks(
@@ -119,6 +121,7 @@ def stage(
     unit: str = "paragraph",
     chars: int = 20,
     layout: str = "auto",
+    output: str = "",
 ) -> dict:
     out = run.stage("05_render")
     frames_dir = out / "frames"
@@ -241,8 +244,9 @@ def stage(
         "\n".join(concat) + "\n", encoding="utf-8", newline="\n"
     )
 
-    tag = "paragraph" if unit == "paragraph" else f"chars{chars}"
-    mp4 = out / f"{run.stem}.aligned.{tag}.mp4"
+    reader = C.reader_of(Path(segments.get("audio", "")).stem)
+    stem = f"{run.stem}{{{reader}}}" if reader else run.stem
+    mp4 = C.resolve_output(output, out, f"{stem}.mp4")
     subprocess.run(
         [
             "ffmpeg",
@@ -308,18 +312,25 @@ def main() -> None:
     ap.add_argument("--pdf-variant", default="")
     ap.add_argument("--pdf-dir", default="")
     ap.add_argument("--layout", default="auto", choices=["auto", "linear"])
+    ap.add_argument(
+        "--output",
+        default="",
+        help="redirect the mp4: a directory, a new file name, or an absolute path for both",
+    )
     ap.add_argument("--unit", default="paragraph", choices=["paragraph", "chars"])
-    ap.add_argument("--chars", type=int, default=20)
+    ap.add_argument("--chars", type=int, default=0, help="implies --unit chars")
     ap.add_argument("--paragraphs", action="store_true")
-    ap.add_argument("--words", type=int, default=0)
+    ap.add_argument("--words", type=int, default=0, help="alias of --chars")
     args = ap.parse_args()
     if args.paragraphs:
         args.unit = "paragraph"
     if args.words:
-        args.unit, args.chars = "chars", args.words
+        args.chars = args.words
+    if args.chars:
+        args.unit = "chars"
 
-    target = C.resolve_input(args.target)
-    align = C.latest_stage(C.stem_of(target), "03_align")
+    target = C.require_md(C.resolve_input(args.target), "render")
+    align = C.latest_stage(C.stem_of(target), "03_align", ready="align")
     if not align:
         raise SystemExit("no align run found; run `just align <target>` first")
     ingest_name = json.loads(
@@ -330,7 +341,9 @@ def main() -> None:
     run = C.Run(target)
     print(
         json.dumps(
-            stage(run, align, ingest, pdf, args.unit, args.chars, args.layout),
+            stage(
+                run, align, ingest, pdf, args.unit, args.chars, args.layout, args.output
+            ),
             ensure_ascii=False,
         )
     )

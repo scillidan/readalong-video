@@ -93,7 +93,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("target")
     args = ap.parse_args()
-    run = C.Run(C.resolve_input(args.target))
+    run = C.Run(C.require_md(C.resolve_input(args.target), "report"))
     print(json.dumps(stage(run), ensure_ascii=False))
 
 

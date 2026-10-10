@@ -27,15 +27,18 @@ def env_dir(name: str) -> Path | None:
 
 
 def resolve_input(target: str) -> Path:
-    """Resolve a bare name against cwd, MD_SOURCE, then TXT_SOURCE."""
+    """Resolve an explicit path (file or directory); no cwd/env search fallbacks."""
     path = Path(target)
     if path.exists():
         return path.resolve()
-    for var in ("MD_SOURCE", "TXT_SOURCE"):
-        base = env_dir(var)
-        if base and (base / target).exists():
-            return (base / target).resolve()
-    raise SystemExit(f"input not found: {target} (checked cwd, MD_SOURCE, TXT_SOURCE)")
+    raise SystemExit(f"input not found: {target}")
+
+
+def require_md(target: Path, stage: str) -> Path:
+    """Single-.md stages reject directories (use add for directories)."""
+    if target.is_dir():
+        raise SystemExit(f"{stage} takes a single .md; `just add` handles directories")
+    return target
 
 
 def stem_of(target: Path) -> str:
@@ -43,10 +46,72 @@ def stem_of(target: Path) -> str:
     return target.name.rsplit(".", 1)[0] if "." in target.name else target.name
 
 
+AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg")
+READER_RE = re.compile(r"^(?P<stem>.*?)\{(?P<reader>[^}]+)\}$")
+
+
+def reader_of(audio_stem: str) -> str | None:
+    """`chpt_01{reader-name}` -> `reader-name`; plain names -> None."""
+    m = READER_RE.match(audio_stem)
+    return m.group("reader") if m else None
+
+
+def _audio_hits(directory: Path, stem: str) -> list[Path]:
+    """`<stem>.mp3` or `<stem>{reader}.mp3` in `directory`."""
+    return sorted(
+        f
+        for f in directory.iterdir()
+        if f.is_file()
+        and f.suffix.lower() in AUDIO_EXTS
+        and re.fullmatch(
+            re.escape(stem) + r"(\{[^}]+\})?" + re.escape(f.suffix),
+            f.name,
+            re.IGNORECASE,
+        )
+    )
+
+
+def resolve_media(md: Path, media: str, strict: bool = True) -> Path | None:
+    """Pair an .md with its audio. `--media` may be a file or a directory
+    (auto-detected). Directory/sibling pairing matches `<stem>.mp3` or
+    `<stem>{reader}.mp3`."""
+    stem = stem_of(md)
+    if media:
+        p = Path(media)
+        if not p.exists():
+            raise SystemExit(f"media not found: {media}")
+        if p.is_file():
+            if md.is_dir():
+                raise SystemExit(
+                    "--media file with a directory of .md; pass a media directory"
+                )
+            return p.resolve()
+        hits = _audio_hits(p, stem)
+        where = str(p)
+    else:
+        hits = _audio_hits(md.parent, stem)
+        where = "the .md's directory (pass --media <file/dir>)"
+    if len(hits) == 1:
+        return hits[0].resolve()
+    if len(hits) > 1:
+        raise SystemExit(f"multiple audios match {stem}: {[h.name for h in hits]}")
+    if strict:
+        raise SystemExit(
+            f"no audio matching '{stem}.mp3' or '{stem}{{reader}}.mp3' in {where}"
+        )
+    return None
+
+
+PDF_VARIANTS = {"a4": ".pdf", "a5": ".a5.pdf", "a4-blt": ".booklet.pdf"}
+
+
 def resolve_pdf(
     anchor: Path, explicit: str = "", variant: str = "", pdf_dir: str = ""
 ) -> Path:
-    """Find the booklet PDF for `anchor`: explicit > variant > PDF_SOURCE > sibling."""
+    """Find the PDF for `anchor`: explicit > variant > PDF_SOURCE / _output/pdfs > sibling.
+
+    Variant names and file suffixes follow the copys pipeline: a4 -> `<stem>.pdf`
+    (A4 2-up reader), a5 -> `<stem>.a5.pdf`, a4-blt -> `<stem>.booklet.pdf`."""
     stem = stem_of(anchor)
     if explicit:
         p = Path(explicit)
@@ -56,32 +121,49 @@ def resolve_pdf(
             return p.resolve()
         raise SystemExit(f"pdf not found: {explicit}")
 
-    suffixes = {"screen": ".pdf", "a5": ".a5.pdf", "booklet": ".booklet.pdf"}
-    if variant and variant not in suffixes:
-        raise SystemExit(f"unknown --pdf-variant: {variant} (screen|a5|booklet)")
+    if variant and variant not in PDF_VARIANTS:
+        raise SystemExit(f"unknown --pdf-variant: {variant} ({'|'.join(PDF_VARIANTS)})")
 
     dirs = [Path(pdf_dir)] if pdf_dir else []
     pdf_source = env_dir("PDF_SOURCE")
     if pdf_source:
         dirs.append(pdf_source)
+    dirs.append(anchor.parent / "_output" / "pdfs")
     dirs.append(anchor.parent)
 
     names = (
-        [f"{stem}{suffixes[variant]}"]
+        [f"{stem}{PDF_VARIANTS[variant]}"]
         if variant
-        else [
-            f"{stem}.pdf",
-            f"{stem}.a5.pdf",
-            f"{stem}.booklet.pdf",
-        ]
+        else [f"{stem}{suffix}" for suffix in PDF_VARIANTS.values()]
     )
     for d in dirs:
         for name in names:
             if (d / name).exists():
                 return (d / name).resolve()
     raise SystemExit(
-        f"pdf not found for {stem} (use --pdf / --pdf-variant / --pdf-dir)"
+        f"pdf not found for {stem} (use --pdf / --gen-a4 / --gen-a5 / --pdf-variant)"
     )
+
+
+def resolve_output(spec: str, default_dir: Path, default_name: str) -> Path:
+    """Resolve `--output` against the default mp4 location.
+
+    - existing directory or trailing separator or extension-less path -> a directory
+      (the mp4 keeps `default_name` inside it);
+    - path with a filename suffix -> that exact file (absolute paths redirect both
+      directory and name; bare names redirect only the name, into `default_dir`).
+    Missing directories are created.
+    """
+    if not spec:
+        return default_dir / default_name
+    p = Path(spec)
+    if (p.exists() and p.is_dir()) or spec.endswith(("/", "\\")) or not p.suffix:
+        p.mkdir(parents=True, exist_ok=True)
+        return (p / default_name).resolve()
+    if p.parent == Path("."):
+        return default_dir / p.name  # bare name: rename only
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p.resolve()
 
 
 def sha256(path: Path) -> str:
@@ -207,12 +289,29 @@ def parse_md(text: str) -> dict:
 # --- run context -------------------------------------------------------------
 
 
-def latest_stage(stem: str, stage: str) -> Path | None:
-    """Newest `_output/<stem>_*/<stage>` directory, if any."""
+def latest_stage(stem: str, stage: str, ready: str = "") -> Path | None:
+    """Newest `_output/<stem>_*/<stage>` directory, if any.
+
+    With `ready`, only runs whose manifest has that stage recorded (e.g. an
+    in-flight run directory whose stage folder already exists but has not
+    finished is skipped)."""
     candidates = sorted(
         OUTPUT.glob(f"{stem}_*/{stage}"), key=lambda p: p.stat().st_mtime
     )
-    return candidates[-1] if candidates else None
+    if not ready:
+        return candidates[-1] if candidates else None
+    for d in reversed(candidates):
+        manifest = d.parent / "manifest.json"
+        if manifest.exists():
+            try:
+                stages = json.loads(manifest.read_text(encoding="utf-8")).get(
+                    "stages", {}
+                )
+            except json.JSONDecodeError:
+                continue  # mid-write
+            if ready in stages:
+                return d
+    return None
 
 
 @dataclass

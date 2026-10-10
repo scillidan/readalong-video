@@ -1,15 +1,23 @@
 set dotenv-load
 
-# == add (full pipeline: standard .md + sibling .mp3 -> mp4)
-# Trailing flags are forwarded, e.g. --pdf-variant screen --chars 20 --layout linear.
+# == add (full pipeline: standard .md file/dir + --media audio file/dir -> mp4)
+# Trailing flags are forwarded, e.g. --gen-a5 --chars 20 --output <file|dir>.
 add target *flags:
     uv run scripts/add.py "{{target}}" {{ flags }}
+
+# == gen-a4 (standard .md -> A4 landscape 2-up reader PDF)
+gen-a4 target *flags:
+    uv run scripts/gen_pdf.py "{{target}}" --a4 {{ flags }}
+
+# == gen-a5 (standard .md -> single A5 pages PDF)
+gen-a5 target *flags:
+    uv run scripts/gen_pdf.py "{{target}}" --a5 {{ flags }}
 
 # == probe (01: md segments / audio / pdf)
 probe target *flags:
     uv run scripts/probe.py "{{target}}" {{ flags }}
 
-# == ingest (02: rinsed text + 16k mono wav)
+# == ingest (02: rinsed text + 16k mono wav; pass --media <file/dir> or sibling <stem>.mp3)
 ingest target *flags:
     uv run scripts/ingest.py "{{target}}" {{ flags }}
 

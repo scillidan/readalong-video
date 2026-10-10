@@ -1,0 +1,88 @@
+% copy/ book-style overrides; load after scripts/gen_a4_latex.tex.
+
+% CJK has no real italic face; fake a slant so \itshape is visible.
+% Bold resolves to the real Sarasa Mono SC Bold (700) face automatically.
+\setmainfont[AutoFakeSlant=0.2]{Sarasa Mono SC}
+\setmonofont[AutoFakeSlant=0.2]{Sarasa Mono SC}
+\setCJKmainfont[AutoFakeSlant=0.2]{Sarasa Mono SC}
+\setCJKsansfont[AutoFakeSlant=0.2]{Sarasa Mono SC}
+\setCJKmonofont[AutoFakeSlant=0.2]{Sarasa Mono SC}
+
+% Hooks run in registration order; this overrides the post template's \RaggedRight.
+\AtBeginDocument{\justifying}
+
+\AtBeginDocument{%
+  % 2em in this font actually lands at ~1.5 CJK chars; measure two real
+  % "中" glyph widths instead.
+  \setbox0=\hbox{中}%
+  \setlength{\parindent}{2\wd0}%
+  % A blank line in the source marks a paragraph break; give it a one-line
+  % gap. Hard line breaks stay plain newlines and do not see this gap.
+  \setlength{\parskip}{\baselineskip}%
+}
+
+% Metadata: frameless, left-aligned, no indent. The gap between metadata
+% blocks and the body is one line height: 0.5\baselineskip from each block
+% combines with the following paragraph's \parskip to a single line.
+\renewenvironment{postmetadata}{%
+  \par\addvspace{0.5\baselineskip}%
+  \begingroup
+  \footnotesize
+  \raggedright
+  \setlength{\parindent}{0pt}%
+  \setlength{\parskip}{0pt}%
+}{%
+  \par\endgroup
+  \addvspace{0.5\baselineskip}%
+}
+
+% Blockquote: full measure, \small, upright, normal inter-line spacing above
+% and below. The trailing negative skip cancels the following paragraph's \parskip.
+\renewcommand{\postblockquotebegin}{%
+  \begingroup\setlength{\parskip}{0pt}\par\small
+}
+\renewcommand{\postblockquoteend}{%
+  \par\endgroup\vspace{-\parskip}%
+}
+
+% Code blocks: no frame, black-and-white, italic, \small, left indent matching
+% the body paragraph indent.
+\lstdefinestyle{copycodeplain}{
+  basicstyle=\ttfamily\small\itshape,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+  aboveskip=0pt,
+  belowskip=0pt,
+  xleftmargin=\parindent,
+}
+\newcommand{\copyinputfencedcode}[1]{%
+  \par\addvspace{\postblockgap}\begingroup
+  \lstinputlisting[style=copycodeplain]{#1}%
+  \endgroup\par\addvspace{\postblockgap}
+}
+
+% Endnotes: \small, full width, one body-line gap before them, page breaks allowed.
+\makeatletter
+\renewcommand{\postprintendnotes}{%
+  \ifnum\value{postendnotecounter}>0
+    \par\addvspace{\baselineskip}%
+    \begingroup
+    \small
+    \setlength{\parskip}{0pt}%
+    \postnotes@acc
+    \par
+    \endgroup
+  \fi
+}
+\makeatother
+
+\markdownSetup{
+  renderers = {
+    % Two trailing spaces = hard line break: newline with the same 2-CJK-char
+    % indent as a paragraph, but no paragraph gap. Blank lines still produce
+    % real \par breaks and pick up \parskip.
+    hardLineBreak = {\newline\hspace*{\parindent}},
+    inputFencedCode = {\copyinputfencedcode{#1}},
+  }
+}
