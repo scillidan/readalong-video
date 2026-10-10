@@ -24,6 +24,12 @@ def main() -> None:
     ap.add_argument("--pdf-variant", default="")
     ap.add_argument("--pdf-dir", default="")
     ap.add_argument("--layout", default="auto", choices=["auto", "linear"])
+    ap.add_argument(
+        "--engine",
+        default="whispercpp",
+        choices=["whispercpp", "whisperx"],
+        help="align engine: whispercpp (whisper.cpp CPU, stable) or whisperx (torch CUDA)",
+    )
     ap.add_argument("--unit", default="paragraph", choices=["paragraph", "chars"])
     ap.add_argument("--chars", type=int, default=20)
     ap.add_argument("--paragraphs", action="store_true")
@@ -40,7 +46,12 @@ def main() -> None:
 
     probe.stage(run, pdf)
     ingest.stage(run, Path(str(target) + ".mp3"))
-    align.stage(run, run.dir / "02_ingest")
+    if args.engine == "whispercpp":
+        import align_whispercpp
+
+        align_whispercpp.stage(run, run.dir / "02_ingest")
+    else:
+        align.stage(run, run.dir / "02_ingest")
     verify.stage(run, run.dir / "03_align", run.dir / "02_ingest", pdf)
     rendered = render.stage(
         run,

@@ -13,9 +13,13 @@ probe target *flags:
 ingest target *flags:
     uv run scripts/ingest.py "{{target}}" {{ flags }}
 
-# == align (03: whisperX forced alignment)
+# == align (03: whisperX forced alignment; legacy torch CUDA engine)
 align target *flags:
     uv run scripts/align.py "{{target}}" {{ flags }}
+
+# == alignw (03: whisper.cpp forced alignment; default stable CPU engine)
+alignw target *flags:
+    uv run scripts/align_whispercpp.py "{{target}}" {{ flags }}
 
 # == verify (04: timeline QC + page mapping)
 verify target *flags:
@@ -29,7 +33,7 @@ render target *flags:
 report target *flags:
     uv run scripts/report.py "{{target}}" {{ flags }}
 
-# == prefetch (whisperX weights; manual steps printed on failure)
+# == prefetch (whisper.cpp assets required, whisperX weights optional; manual steps printed on failure)
 prefetch:
     uv run scripts/prefetch.py
 

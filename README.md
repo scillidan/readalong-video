@@ -15,7 +15,9 @@ Authors: Kimi-K2.7-Code🧙‍♂️, DeepSeek-V4.1-Flash🧙‍♂️, scillida
 - Windows Git Bash / MSYS (bash) — the pipeline shells out to `ffmpeg`/`ffprobe`.
 - `ffmpeg` + `ffprobe` on `PATH`.
 - `just` and `uv`.
-- NVIDIA GPU (optional but recommended): `large-v3` fp16 needs ~8 GB; otherwise it degrades to CPU/int8.
+- **No GPU required.** The default align engine is **whisper.cpp on CPU** (ggml — the same engine
+  family as llama.cpp), stable on this host. `--engine whisperx` (torch + faster-whisper CUDA)
+  is kept as a legacy option but its CUDA stack hard-hangs this machine — do not use it here.
 
 ## Initialize
 
@@ -31,9 +33,10 @@ does not pick up the CPU-only wheels from PyPI.
 ## Usage
 
 ```sh
-just add <name.md>                       # full pipeline -> mp4
+just add <name.md>                       # full pipeline -> mp4 (whisper.cpp CPU align)
 just add laika-come-home.zh-cn.md --pdf-variant screen --chars 20
 just add <name.md> --pdf /path/to/x.pdf --layout linear
+just add <name.md> --engine whisperx     # legacy torch CUDA engine (unstable on this host)
 ```
 
 `<name.md>` is resolved against the cwd, then `MD_SOURCE` (`TXT_SOURCE` for `.txt`).
@@ -44,7 +47,8 @@ Audio must sit next to the md as `<name.md>.mp3`.
 ```sh
 just probe   <target>     # stages 01: md segments / audio / PDF
 just ingest  <target>     # stages 02: rinsed text + 16k mono wav
-just align   <target>     # stages 03: whisperX forced alignment (+ char anchors)
+just align   <target>     # stages 03: whisperX forced alignment (legacy engine)
+just alignw  <target>     # stages 03: whisper.cpp forced alignment (default engine)
 just verify  <target>     # stages 04: timeline QC + page mapping
 just render  <target>     # stages 05: highlights + turns -> mp4
 just report  <target>     # stages 06: aggregate report

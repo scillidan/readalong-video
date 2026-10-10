@@ -136,6 +136,45 @@ def stage(
         newline="\n",
     )
 
+    duration_ms = round(len(audio) / 16)
+    return _finalize(
+        run,
+        out,
+        ingest_dir,
+        paragraphs,
+        ref,
+        char_times,
+        duration_ms,
+        len(words),
+        {
+            "engine": "whisperx",
+            "model": model,
+            "compute_type": compute_type,
+            "device": device,
+            "fallback": fallback,
+        },
+        [
+            {"name": f"faster-whisper-{model}", "role": "asr", "sha": "TODO:verify"},
+            {"name": "wav2vec2-zh-align", "role": "forced-align", "sha": "TODO:verify"},
+        ],
+        log,
+    )
+
+
+def _finalize(
+    run,
+    out,
+    ingest_dir,
+    paragraphs,
+    ref,
+    char_times,
+    duration_ms,
+    n_words,
+    engine_meta,
+    models,
+    log,
+):
+    """Shared tail for both align engines: per-paragraph timing, artifacts, manifest."""
     by_para: dict[int, list] = {}
     for i, t in enumerate(char_times):
         if t is not None:
@@ -157,7 +196,6 @@ def stage(
                 }
             )
 
-    duration_ms = round(len(audio) / 16)
     (out / "segments_timed.json").write_text(
         json.dumps(
             {"paragraphs": timed, "audio_duration_ms": duration_ms},
@@ -171,17 +209,13 @@ def stage(
     ok = len(paragraphs) - gaps
     coverage = sum(p["end_ms"] - p["start_ms"] for p in timed if p["status"] == "ok")
     summary = {
-        "engine": "whisperx",
-        "model": model,
-        "compute_type": compute_type,
-        "device": device,
-        "fallback": fallback,
+        **engine_meta,
         "paragraphs_total": len(paragraphs),
         "paragraphs_ok": ok,
         "paragraphs_gap": gaps,
         "coverage_ms": coverage,
         "audio_duration_ms": duration_ms,
-        "words": len(words),
+        "words": n_words,
     }
     (out / "align_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -197,12 +231,7 @@ def stage(
             "parent_ingest_run": ingest_dir.parent.name,
         },
     )
-    run.manifest.setdefault("models", []).extend(
-        [
-            {"name": f"faster-whisper-{model}", "role": "asr", "sha": "TODO:verify"},
-            {"name": "wav2vec2-zh-align", "role": "forced-align", "sha": "TODO:verify"},
-        ]
-    )
+    run.manifest.setdefault("models", []).extend(models)
     run.save()
     log(f"DONE ok={ok} gap={gaps} coverage={coverage / 1000:.1f}s")
     return summary
