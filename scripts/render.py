@@ -328,8 +328,12 @@ def main() -> None:
         args.chars = args.words
     if args.chars:
         args.unit = "chars"
+    if args.unit == "chars" and args.chars <= 0:
+        # --unit chars without --chars (or a non-positive one) would hang
+        # _split_chars(target=0); keep the old default of 20.
+        args.chars = 20
 
-    target = C.require_md(C.resolve_input(args.target), "render")
+    target = C.require_file(C.resolve_input(args.target), "render")
     align = C.latest_stage(C.stem_of(target), "03_align", ready="align")
     if not align:
         raise SystemExit("no align run found; run `just align <target>` first")

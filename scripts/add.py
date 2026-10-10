@@ -18,7 +18,7 @@ import report
 import verify
 
 
-def default_layout(gen: str, variant: str, explicit_pdf: bool) -> str:
+def default_layout(gen: str, variant: str) -> str:
     """a4/a5 pages are in reading order (linear); imposed booklets and unknown
     PDFs are matched by content (auto)."""
     if gen in ("a4", "a5") or variant in ("a4", "a5"):
@@ -38,7 +38,7 @@ def process(md: Path, args: argparse.Namespace) -> dict:
         pdf = gen_pdf.generate(md, gen)
     else:
         pdf = C.resolve_pdf(md, args.pdf, args.pdf_variant, args.pdf_dir)
-    layout = args.layout or default_layout(gen, args.pdf_variant, bool(args.pdf))
+    layout = args.layout or default_layout(gen, args.pdf_variant)
 
     run = C.Run(md)
     probe.stage(run, pdf, mp3)
@@ -124,6 +124,10 @@ def main() -> None:
         args.chars = args.words
     if args.chars:
         args.unit = "chars"
+    if args.unit == "chars" and args.chars <= 0:
+        # --unit chars without --chars (or a non-positive one) would hang
+        # _split_chars(target=0); keep the old default of 20.
+        args.chars = 20
 
     target = C.resolve_input(args.target)
     if target.is_dir():
@@ -143,10 +147,23 @@ def main() -> None:
             raise SystemExit(
                 "--output <file> with a directory of .md would collide; pass a directory"
             )
-        results = [process(md, args) for md in mds]
+        results, failures = [], []
+        for md in mds:
+            try:
+                results.append(process(md, args))
+            except SystemExit as e:
+                # one bad chapter (e.g. missing audio) must not kill the rest
+                failures.append({"md": md.name, "error": str(e) or "?"})
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+        if failures:
+            print(
+                json.dumps({"failed": failures}, ensure_ascii=False, indent=2),
+                file=sys.stderr,
+            )
+            raise SystemExit(f"{len(failures)}/{len(mds)} chapters failed")
     else:
         results = [process(target, args)]
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+        print(json.dumps(results, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -28,6 +28,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C
 
+# Intentional import-time side effect: Windows consoles default to a legacy
+# codepage, so printing the pipeline's progress markers (✓/✗) or CJK text
+# would raise UnicodeEncodeError. Importing this module (add.py does so at
+# startup, before any output) forces UTF-8 on both streams.
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
@@ -781,11 +785,8 @@ def generate_seq_wrapper(md_path, latex_dir, project_root, tex_stem):
     return wrapper_path
 
 
-def extract_pax(tex_stem, latex_dir):
-    # pdfpages drops embedded-page links; pax re-inserts them from <stem>.pax
-    if not shutil.which("java"):
-        print("  ⚠ java not found; endnote links will not survive imposition")
-        return
+def pax_sty() -> str | None:
+    """Path of pax.sty per kpsewhich, or None when the package is unavailable."""
     r = subprocess.run(
         ["kpsewhich", "pax.sty"],
         capture_output=True,
@@ -793,10 +794,21 @@ def extract_pax(tex_stem, latex_dir):
         encoding="utf-8",
         check=False,
     )
-    jar = None
     if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip().splitlines()[0]
+    return None
+
+
+def extract_pax(tex_stem, latex_dir):
+    # pdfpages drops embedded-page links; pax re-inserts them from <stem>.pax
+    if not shutil.which("java"):
+        print("  ⚠ java not found; endnote links will not survive imposition")
+        return
+    jar = None
+    sty = pax_sty()
+    if sty:
         # <texmf>/tex/latex/pax/pax.sty -> <texmf>/scripts/pax/pax.jar
-        texmf = Path(r.stdout.strip().splitlines()[0]).parents[3]
+        texmf = Path(sty).parents[3]
         candidate = texmf / "scripts" / "pax" / "pax.jar"
         if candidate.exists():
             jar = str(candidate)
@@ -831,19 +843,27 @@ def normalize_paper(paper: str) -> str:
 def generate_reader_wrapper(tex_stem, latex_dir, source_pdf, paper="a4"):
     """Generate the pdfpages 2-up reader wrapper (copys reader branch)."""
     opts = "pages=-, nup=2x1"
+    # pax re-inserts the source PDF's hyperlinks into the imposed reader; when
+    # the package is unavailable (kpsewhich pax.sty), the reader still imposes
+    # fine -- just without links -- so omit it to survive minimal TeX installs.
+    pax_block = (
+        """\\usepackage{pdftexcmds}
+\\makeatletter
+\\ifx\\pdfstrcmp\\undefined\\let\\pdfstrcmp\\pdf@strcmp\\fi
+\\makeatother
+\\usepackage{pax}
+
+"""
+        if pax_sty()
+        else ""
+    )
     wrapper = f"""% !TeX program = pdflatex
 % Auto-generated reader imposition wrapper -- do not edit.
 
 \\documentclass{{article}}
 \\usepackage[{normalize_paper(paper)}, landscape, margin=0pt]{{geometry}}
 \\usepackage{{pdfpages}}
-\\usepackage{{pdftexcmds}}
-\\makeatletter
-\\ifx\\pdfstrcmp\\undefined\\let\\pdfstrcmp\\pdf@strcmp\\fi
-\\makeatother
-\\usepackage{{pax}}
-
-\\begin{{document}}
+{pax_block}\\begin{{document}}
 
 \\includepdf[{opts}]{{{source_pdf.name}}}
 

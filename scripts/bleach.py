@@ -170,7 +170,7 @@ def main() -> None:
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
-    src = C.require_md(C.resolve_input(args.target), "bleach")
+    src = C.require_file(C.resolve_input(args.target), "bleach")
     if args.style != "gutenberg":
         raise SystemExit(f"unsupported style: {args.style}")
     if not START_RE.search(src.read_text(encoding="utf-8", errors="replace")):

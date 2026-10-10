@@ -71,7 +71,7 @@ def main() -> None:
     ap.add_argument("target")
     ap.add_argument("--media", default="", help="audio file or directory (see add)")
     args = ap.parse_args()
-    target = C.require_md(C.resolve_input(args.target), "ingest")
+    target = C.require_file(C.resolve_input(args.target), "ingest")
     mp3 = C.resolve_media(target, args.media)
     run = C.Run(target)
     print(json.dumps(stage(run, mp3), ensure_ascii=False))

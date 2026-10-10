@@ -193,7 +193,7 @@ def main() -> None:
     ap.add_argument("--pdf-variant", default="")
     ap.add_argument("--pdf-dir", default="")
     args = ap.parse_args()
-    target = C.require_md(C.resolve_input(args.target), "verify")
+    target = C.require_file(C.resolve_input(args.target), "verify")
     align = C.latest_stage(C.stem_of(target), "03_align", ready="align")
     if not align:
         raise SystemExit("no align run found; run `just align <target>` first")

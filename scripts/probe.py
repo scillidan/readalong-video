@@ -137,7 +137,7 @@ def main() -> None:
     ap.add_argument("--pdf-dir", default="")
     args = ap.parse_args()
 
-    target = C.require_md(C.resolve_input(args.target), "probe")
+    target = C.require_file(C.resolve_input(args.target), "probe")
     mp3 = C.resolve_media(target, args.media, strict=False)
     pdf = (
         C.resolve_pdf(target, args.pdf, args.pdf_variant, args.pdf_dir)

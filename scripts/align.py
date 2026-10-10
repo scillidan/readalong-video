@@ -243,7 +243,7 @@ def main() -> None:
     ap.add_argument("--model", default="large-v3")
     ap.add_argument("--compute-type", default="float16")
     args = ap.parse_args()
-    target = C.require_md(C.resolve_input(args.target), "align")
+    target = C.require_file(C.resolve_input(args.target), "align")
     ingest = C.latest_stage(C.stem_of(target), "02_ingest")
     if not ingest:
         raise SystemExit("no ingest run found; run `just ingest <target>` first")

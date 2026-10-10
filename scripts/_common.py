@@ -34,10 +34,10 @@ def resolve_input(target: str) -> Path:
     raise SystemExit(f"input not found: {target}")
 
 
-def require_md(target: Path, stage: str) -> Path:
-    """Single-.md stages reject directories (use add for directories)."""
+def require_file(target: Path, stage: str) -> Path:
+    """Single-file stages reject directories (use add for directories)."""
     if target.is_dir():
-        raise SystemExit(f"{stage} takes a single .md; `just add` handles directories")
+        raise SystemExit(f"{stage} takes a single file; `just add` handles directories")
     return target
 
 
