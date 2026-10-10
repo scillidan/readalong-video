@@ -185,6 +185,21 @@ def clean_markdown(md_content):
     return md_content
 
 
+def cjk_space_to_ideographic(md_content):
+    r"""Keep CJK-internal gaps visible: xeCJK drops a literal ASCII space between
+    two CJK chars (e.g. the gap in "## 第一章 钻进兔子洞" vanishes in the PDF;
+    use ~ at the TeX level instead). A full-width U+3000 survives typesetting,
+    and the matcher's normalize() strips it again, so alignment is unaffected.
+    Trailing hard-break spaces are untouched (no CJK char follows them)."""
+    return re.sub(
+        r"(?<=[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])"
+        r" +"
+        r"(?=[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])",
+        "　",
+        md_content,
+    )
+
+
 def apply_smart_quotes(md_content):
     r"""Convert straight ASCII double quotes in text to curly quotes.
 
@@ -695,6 +710,7 @@ def process_markdown(md_path, output_dir):
     md_content = normalize_whitespace(md_content, hard_breaks=True)
     md_content = re.sub(r"\n{3,}", "\n\n", md_content)
     md_content = apply_smart_quotes(md_content)
+    md_content = cjk_space_to_ideographic(md_content)
 
     meta_path = output_dir / "meta.tex"
     # Keep the first H1 in the markdown body; the wrapper no longer prints a

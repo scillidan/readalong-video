@@ -56,7 +56,6 @@ def process(md: Path, args: argparse.Namespace) -> dict:
         run.dir / "02_ingest",
         pdf,
         args.unit,
-        args.chars,
         layout,
         args.output,
     )
@@ -113,21 +112,13 @@ def main() -> None:
         choices=["whispercpp", "whisperx"],
         help="align engine: whispercpp (whisper.cpp CPU, stable) or whisperx (torch CUDA)",
     )
-    ap.add_argument("--unit", default="paragraph", choices=["paragraph", "chars"])
-    ap.add_argument("--chars", type=int, default=0, help="implies --unit chars")
-    ap.add_argument("--paragraphs", action="store_true")
-    ap.add_argument("--words", type=int, default=0, help="alias of --chars")
+    ap.add_argument(
+        "--unit",
+        default="paragraph",
+        choices=["paragraph", "line"],
+        help="highlight granularity: whole paragraph, or one PDF text line at a time",
+    )
     args = ap.parse_args()
-    if args.paragraphs:
-        args.unit = "paragraph"
-    if args.words:
-        args.chars = args.words
-    if args.chars:
-        args.unit = "chars"
-    if args.unit == "chars" and args.chars <= 0:
-        # --unit chars without --chars (or a non-positive one) would hang
-        # _split_chars(target=0); keep the old default of 20.
-        args.chars = 20
 
     target = C.resolve_input(args.target)
     if target.is_dir():

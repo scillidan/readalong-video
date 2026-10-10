@@ -37,7 +37,7 @@ just add <name.md> --media <audio.mp3> --pdf <file.pdf>
 
 # I only have the .md (generate the PDF first, then run):
 just add <name.md> --media <audio.mp3> --gen-a5
-just add <name.md> --media <audio.mp3> --gen-a4 --chars 20
+just add <name.md> --media <audio.mp3> --gen-a4 --unit line
 
 # a directory of .md (one per chapter) against a directory of mp3:
 just add <md_dir> --media <audio_dir> --gen-a5
@@ -111,10 +111,11 @@ for booklets and unknown PDFs) recovers reading order from content. `--gen-a4` /
 ### Highlight unit
 
 - `--unit paragraph` (default): one highlight per paragraph.
-- `--chars N` (alias `--words N`): implies `--unit chars`; split each paragraph
-  every ~N characters at the nearest punctuation. Sentence times are anchored to
-  word-level timestamps, so `--chars 20` tracks speech more tightly than
-  paragraph mode.
+- `--unit line`: one highlight per typeset PDF text line — the highlight follows
+  the narration line by line, always covering whole lines. (For
+  LaTeX-typeset PDFs each matched text block is a single line; lines shorter
+  than the 8-character match threshold, e.g. a tiny dialogue line, are not
+  matched and simply stay unhighlighted.)
 
 ## Output
 

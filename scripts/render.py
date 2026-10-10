@@ -14,9 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common as C
 
 ZOOM = 2.0
-# CJK punctuation plus the ASCII forms that NFKC normalization maps them to
-# (，->, 。->. ！->! ？->? ；->; ：->: …->...); 、 keeps its codepoint.
-PUNCT = set("。！？；，、…,.!?;:")
 
 
 def _page_blocks(
@@ -69,31 +66,6 @@ def _paragraph_page(segments: dict, pages_blocks: list[list[dict]]) -> dict:
     return result
 
 
-def _split_chars(text: str, target: int) -> list[tuple[int, int]]:
-    """Split at the punctuation nearest each target offset (window [target/2, 2*target])."""
-    length = len(text)
-    out, pos = [], 0
-    gap = max(6, target // 2)
-    while pos < length:
-        if length - pos <= target + gap:
-            out.append((pos, length))
-            break
-        target_pos = pos + target
-        lo, hi = pos + gap, min(length - 1, pos + 2 * target)
-        best = None
-        for i in range(lo, hi + 1):
-            if text[i] in PUNCT and (
-                best is None or abs(i - target_pos) < abs(best - target_pos)
-            ):
-                best = i
-        cut = best + 1 if best is not None else target_pos
-        if cut <= pos:
-            cut = min(pos + target, length)
-        out.append((pos, cut))
-        pos = cut
-    return out or [(0, length)]
-
-
 class _Anchors:
     """Char-level start/end times (ms); index-aligned with the reference stream."""
 
@@ -119,7 +91,6 @@ def stage(
     ingest_dir: Path,
     pdf: Path,
     unit: str = "paragraph",
-    chars: int = 20,
     layout: str = "auto",
     output: str = "",
 ) -> dict:
@@ -148,14 +119,55 @@ def stage(
     pages_blocks = _page_blocks(pdf, ref, layout=layout)
     para_page = _paragraph_page(segments, pages_blocks)
 
-    units = []
+    ok_spans = []  # (g_start, g_end, start_ms, end_ms) per timed-ok paragraph
     for p in timed["paragraphs"]:
         if p["status"] != "ok" or not para_norm.get(p["idx"]):
             continue
-        text = para_norm[p["idx"]]
-        base = para_off[p["idx"]]
-        cuts = [(0, len(text))] if unit == "paragraph" else _split_chars(text, chars)
-        for rs, re_ in cuts:
+        g0 = para_off[p["idx"]]
+        ok_spans.append((g0, g0 + len(para_norm[p["idx"]]), p["start_ms"], p["end_ms"]))
+
+    def interp(pos: int) -> int:
+        """Linear-interp time (ms) at a global ref position (no char anchors)."""
+        for g0, g1, t0, t1 in ok_spans:
+            if g0 <= pos <= g1:
+                n = g1 - g0
+                return round(t0 + (0 if n == 0 else (pos - g0) / n) * (t1 - t0))
+        if not ok_spans:
+            return 0
+        if pos < ok_spans[0][0]:
+            return ok_spans[0][2]
+        return ok_spans[-1][3]
+
+    units = []
+    if unit == "line":
+        # one unit per matched PDF text line (blocks are single lines for
+        # LaTeX-typeset PDFs): uniform whole-line highlights that track the
+        # audio line by line
+        for pi, blocks in enumerate(pages_blocks):
+            for b in blocks:
+                rs, re_ = b["ref"]
+                t0 = anchors.at(rs, interp(rs), True) if anchors else interp(rs)
+                t1 = (
+                    anchors.at(re_ - 1, interp(re_ - 1), False)
+                    if anchors
+                    else interp(re_ - 1)
+                )
+                units.append(
+                    {
+                        "page": pi,
+                        "t0": t0,
+                        "t1": max(t1, t0 + 80),
+                        "g0": rs,
+                        "g1": re_ - 1,
+                    }
+                )
+    else:
+        for p in timed["paragraphs"]:
+            if p["status"] != "ok" or not para_norm.get(p["idx"]):
+                continue
+            text = para_norm[p["idx"]]
+            base = para_off[p["idx"]]
+            rs, re_ = 0, len(text)
             if anchors:
                 t0 = anchors.at(base + rs, p["start_ms"], True)
                 t1 = anchors.at(base + re_ - 1, p["end_ms"], False)
@@ -284,7 +296,6 @@ def stage(
 
     summary = {
         "unit": unit,
-        "chars": chars if unit == "chars" else None,
         "layout": layout,
         "timing": "char-anchors" if anchors else "linear-interp",
         "audio_duration_ms": duration,
@@ -317,21 +328,13 @@ def main() -> None:
         default="",
         help="redirect the mp4: a directory, a new file name, or an absolute path for both",
     )
-    ap.add_argument("--unit", default="paragraph", choices=["paragraph", "chars"])
-    ap.add_argument("--chars", type=int, default=0, help="implies --unit chars")
-    ap.add_argument("--paragraphs", action="store_true")
-    ap.add_argument("--words", type=int, default=0, help="alias of --chars")
+    ap.add_argument(
+        "--unit",
+        default="paragraph",
+        choices=["paragraph", "line"],
+        help="highlight granularity: whole paragraph, or one PDF text line at a time",
+    )
     args = ap.parse_args()
-    if args.paragraphs:
-        args.unit = "paragraph"
-    if args.words:
-        args.chars = args.words
-    if args.chars:
-        args.unit = "chars"
-    if args.unit == "chars" and args.chars <= 0:
-        # --unit chars without --chars (or a non-positive one) would hang
-        # _split_chars(target=0); keep the old default of 20.
-        args.chars = 20
 
     target = C.require_file(C.resolve_input(args.target), "render")
     align = C.latest_stage(C.stem_of(target), "03_align", ready="align")
@@ -345,9 +348,7 @@ def main() -> None:
     run = C.Run(target)
     print(
         json.dumps(
-            stage(
-                run, align, ingest, pdf, args.unit, args.chars, args.layout, args.output
-            ),
+            stage(run, align, ingest, pdf, args.unit, args.layout, args.output),
             ensure_ascii=False,
         )
     )
