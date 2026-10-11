@@ -7,11 +7,9 @@ import bisect
 import difflib
 import json
 import subprocess
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
+from . import common as C
 
 ZOOM = 2.0
 
@@ -250,11 +248,15 @@ def stage(
             img = Image.alpha_composite(img, overlay)
         fp = frames_dir / f"{n:05d}.png"
         img.convert("RGB").save(fp)
+        # Relative paths on purpose: the concat demuxer parses ' as a quote
+        # delimiter, so an absolute path containing ' (alice's-...) breaks
+        # the token. Relative names keep special chars out of concat.txt;
+        # the demuxer resolves them against the concat file's directory.
         concat.append(
-            f"file '{fp.as_posix()}'\nduration {max(1, fr['t1'] - fr['t0']) / 1000:.3f}"
+            f"file 'frames/{fp.name}'\nduration {max(1, fr['t1'] - fr['t0']) / 1000:.3f}"
         )
         last = fp
-    concat.append(f"file '{last.as_posix()}'")
+    concat.append(f"file 'frames/{last.name}'")
     (out / "concat.txt").write_text(
         "\n".join(concat) + "\n", encoding="utf-8", newline="\n"
     )
@@ -319,8 +321,7 @@ def stage(
     return summary
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--pdf", default="")
     ap.add_argument("--pdf-variant", default="")
@@ -337,16 +338,17 @@ def main() -> None:
         choices=["paragraph", "line"],
         help="highlight granularity: whole paragraph, or one PDF text line at a time",
     )
-    args = ap.parse_args()
 
+
+def run(args: argparse.Namespace) -> None:
     target = C.require_file(C.resolve_input(args.target), "render")
-    align = C.latest_stage(C.stem_of(target), "03_align", ready="align")
+    align = C.latest_stage(target, "03_align", ready="align")
     if not align:
-        raise SystemExit("no align run found; run `just align <target>` first")
+        raise SystemExit("no align run found; run `readalong align <target>` first")
     ingest_name = json.loads(
         (align.parent / "manifest.json").read_text(encoding="utf-8")
     )["stages"]["align"]["parent_ingest_run"]
-    ingest = C.OUTPUT / ingest_name / "02_ingest"
+    ingest = C.runs_root(target) / ingest_name / "02_ingest"
     pdf = C.resolve_pdf(target, args.pdf, args.pdf_variant, args.pdf_dir)
     run = C.Run(target)
     print(
@@ -355,7 +357,3 @@ def main() -> None:
             ensure_ascii=False,
         )
     )
-
-
-if __name__ == "__main__":
-    main()

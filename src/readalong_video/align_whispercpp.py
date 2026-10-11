@@ -18,12 +18,10 @@ import argparse
 import json
 import os
 import re
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
-import align as A
+from . import align as A
+from . import common as C
 
 DEFAULT_BIN = Path(
     os.environ.get(
@@ -206,8 +204,7 @@ def stage(
     )
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--model", default="")
     ap.add_argument("--language", default="zh")
@@ -216,11 +213,13 @@ def main() -> None:
     ap.add_argument(
         "--reuse", action="store_true", help="skip transcription if whisper.json exists"
     )
-    args = ap.parse_args()
+
+
+def run(args: argparse.Namespace) -> None:
     target = C.require_file(C.resolve_input(args.target), "alignw")
-    ingest = C.latest_stage(C.stem_of(target), "02_ingest")
+    ingest = C.latest_stage(target, "02_ingest")
     if not ingest:
-        raise SystemExit("no ingest run found; run `just ingest <target>` first")
+        raise SystemExit("no ingest run found; run `readalong ingest <target>` first")
     run = C.Run(target)
     print(
         json.dumps(
@@ -236,7 +235,3 @@ def main() -> None:
             ensure_ascii=False,
         )
     )
-
-
-if __name__ == "__main__":
-    main()

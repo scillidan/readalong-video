@@ -25,15 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
-
-# Intentional import-time side effect: Windows consoles default to a legacy
-# codepage, so printing the pipeline's progress markers (✓/✗) or CJK text
-# would raise UnicodeEncodeError. Importing this module (add.py does so at
-# startup, before any output) forces UTF-8 on both streams.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from . import common as C
 
 MEDIA_EXTS = {".gif", ".mp4", ".mov", ".webm"}
 AVIF_EXTS = {".avif"}
@@ -772,7 +764,7 @@ def generate_seq_wrapper(md_path, latex_dir, project_root, tex_stem):
     rel_root = os.path.relpath(project_root, latex_dir).replace("\\", "/")
     wrapper = rf"""% !TeX program = xelatex
 % Auto-generated LaTeX wrapper for {md_path.name} -- do not edit.
-% Regenerate with: python scripts/gen_pdf.py {md_path.as_posix()}
+% Regenerate with: readalong gen-a5 {md_path.as_posix()}
 
 \documentclass{{article}}
 \usepackage[a5paper, margin=1.2cm]{{geometry}}
@@ -780,8 +772,8 @@ def generate_seq_wrapper(md_path, latex_dir, project_root, tex_stem):
 \def\poststem{{{stem}}}
 \def\postlayout{{a5}}
 
-\input{{{rel_root}/scripts/gen_a4_latex}}
-\input{{{rel_root}/scripts/gen_copy}}
+\input{{{rel_root}/gen_a4_latex}}
+\input{{{rel_root}/gen_copy}}
 
 \def\postimagedir{{images/}}
 
@@ -907,7 +899,7 @@ def generate(md: Path, variant: str) -> Path:
     if not shutil.which("xelatex"):
         raise SystemExit("xelatex not found (MiKTeX/TeX Live required)")
 
-    project_root = Path(__file__).resolve().parent.parent
+    project_root = Path(__file__).resolve().parent
     pdfs_dir = md.parent / "_output" / "pdfs"
     pdfs_dir.mkdir(parents=True, exist_ok=True)
     latex_dir = safe_staging_dir(md.parent / "_output" / "latex", tex_stem_of(md))
@@ -939,19 +931,13 @@ def generate(md: Path, variant: str) -> Path:
     return out.resolve()
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target", help="standard .md file, or directory of them")
-    ap.add_argument(
-        "--a4", action="store_true", help="A4 landscape 2-up reader (default)"
-    )
-    ap.add_argument("--a5", action="store_true", help="single A5 pages")
     ap.add_argument("--out", default="", help="output path (single-file input only)")
-    args = ap.parse_args()
-    variant = "a5" if args.a5 else "a4"
-    if args.a4 and args.a5:
-        raise SystemExit("--a4 and --a5 are mutually exclusive")
 
+
+def run(args: argparse.Namespace) -> None:
+    variant = getattr(args, "variant", "") or "a4"
     target = C.resolve_input(args.target)
     if target.is_dir():
         if args.out:
@@ -966,7 +952,3 @@ def main() -> None:
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(pdf), args.out)
-
-
-if __name__ == "__main__":
-    main()

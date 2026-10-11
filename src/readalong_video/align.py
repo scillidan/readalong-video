@@ -5,12 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
+from . import common as C
 
 # The host environment sets HF_HUB_ENABLE_HF_TRANSFER=1 without the package installed; disable it.
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
@@ -237,23 +235,20 @@ def _finalize(
     return summary
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--model", default="large-v3")
     ap.add_argument("--compute-type", default="float16")
-    args = ap.parse_args()
+
+
+def run(args: argparse.Namespace) -> None:
     target = C.require_file(C.resolve_input(args.target), "align")
-    ingest = C.latest_stage(C.stem_of(target), "02_ingest")
+    ingest = C.latest_stage(target, "02_ingest")
     if not ingest:
-        raise SystemExit("no ingest run found; run `just ingest <target>` first")
+        raise SystemExit("no ingest run found; run `readalong ingest <target>` first")
     run = C.Run(target)
     print(
         json.dumps(
             stage(run, ingest, args.model, args.compute_type), ensure_ascii=False
         )
     )
-
-
-if __name__ == "__main__":
-    main()

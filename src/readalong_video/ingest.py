@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
+from . import common as C
 
 
 def stage(run: C.Run, mp3: Path) -> dict:
@@ -66,16 +64,13 @@ def stage(run: C.Run, mp3: Path) -> dict:
     return summary
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--media", default="", help="audio file or directory (see add)")
-    args = ap.parse_args()
+
+
+def run(args: argparse.Namespace) -> None:
     target = C.require_file(C.resolve_input(args.target), "ingest")
     mp3 = C.resolve_media(target, args.media)
     run = C.Run(target)
     print(json.dumps(stage(run, mp3), ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    main()

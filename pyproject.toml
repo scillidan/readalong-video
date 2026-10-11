@@ -1,14 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "readalong-video"
-version = "0.1.0"
-description = "Forced alignment of narrated audio to standard .md text, rendered onto booklet PDF pages as an mp4."
+version = "0.2.0"
+description = "Forced alignment of narrated audio to standard .md text, rendered onto PDF pages with read-along highlights as an mp4."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "torch>=2.8",
-    "torchaudio>=2.8",
-    "torchvision>=0.23",
-    "whisperx>=3.8",
-    "faster-whisper>=1.2",
     "mutagen>=1.47",
     "pypinyin>=0.53",
     "jieba>=0.42",
@@ -16,6 +16,21 @@ dependencies = [
     "pymupdf>=1.26",
     "python-dotenv>=1.0",
 ]
+
+[project.optional-dependencies]
+# Legacy whisperX engine (torch CUDA) — NOT for this host (hard-hangs it).
+# whisper.cpp (default engine) needs no Python deps beyond the core set above.
+whisperx = [
+    "torch>=2.8",
+    "torchaudio>=2.8",
+    "torchvision>=0.23",
+    "whisperx>=3.8",
+    "faster-whisper>=1.2",
+    "huggingface_hub>=0.32",
+]
+
+[project.scripts]
+readalong = "readalong_video.cli:main"
 
 [tool.uv]
 # Windows PyPI torch is CPU-only; use the cu128 index (driver CUDA 13.1 is backward compatible).
@@ -28,3 +43,6 @@ explicit = true
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/readalong_video"]

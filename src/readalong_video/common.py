@@ -11,9 +11,6 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-OUTPUT = ROOT / "_output"
-
 FENCE_RE = re.compile(r"^\s*```")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 FOOTNOTE_DEF_RE = re.compile(r"^\[\^(\d+)\]:\s*(.*)$")
@@ -289,14 +286,26 @@ def parse_md(text: str) -> dict:
 # --- run context -------------------------------------------------------------
 
 
-def latest_stage(stem: str, stage: str, ready: str = "") -> Path | None:
-    """Newest `_output/<stem>_*/<stage>` directory, if any.
+def runs_root(anchor: Path) -> Path:
+    """Where run directories live: $READALONG_RUNS, else `<anchor_dir>/_output/runs`.
+
+    The default anchors runs next to the input .md (copys-style `_output` tree:
+    `runs/` for pipeline runs, `pdfs/` for typeset PDFs, `latex/` for staging)."""
+    override = env_dir("READALONG_RUNS")
+    if override:
+        return override
+    return anchor.parent / "_output" / "runs"
+
+
+def latest_stage(target: Path, stage: str, ready: str = "") -> Path | None:
+    """Newest runs-root `<stem>_*/<stage>` directory for `target`, if any.
 
     With `ready`, only runs whose manifest has that stage recorded (e.g. an
     in-flight run directory whose stage folder already exists but has not
     finished is skipped)."""
     candidates = sorted(
-        OUTPUT.glob(f"{stem}_*/{stage}"), key=lambda p: p.stat().st_mtime
+        runs_root(target).glob(f"{stem_of(target)}_*/{stage}"),
+        key=lambda p: p.stat().st_mtime,
     )
     if not ready:
         return candidates[-1] if candidates else None
@@ -323,7 +332,7 @@ class Run:
     def __post_init__(self) -> None:
         self.stem = stem_of(self.target)
         self.run_id = self.run_id or f"{self.stem}_{time.strftime('%Y%m%d-%H%M%S')}"
-        self.dir = OUTPUT / self.run_id
+        self.dir = runs_root(self.target) / self.run_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.dir / "manifest.json"
         if self.manifest_path.exists():

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
+from . import common as C
 
 STAGES = [
     ("probe", "01_probe"),
@@ -23,7 +21,7 @@ def _stage_dir(run: C.Run, name: str) -> Path | None:
     local = run.dir / name
     if local.exists():
         return local
-    return C.latest_stage(run.stem, name)
+    return C.latest_stage(run.target, name)
 
 
 def stage(run: C.Run) -> dict:
@@ -89,13 +87,10 @@ def stage(run: C.Run) -> dict:
     return summary
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
-    args = ap.parse_args()
+
+
+def run(args: argparse.Namespace) -> None:
     run = C.Run(C.require_file(C.resolve_input(args.target), "report"))
     print(json.dumps(stage(run), ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    main()

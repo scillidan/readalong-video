@@ -7,15 +7,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
-import align
-import gen_pdf
-import ingest
-import probe
-import render
-import report
-import verify
+from . import align, gen_pdf, ingest, probe, render, report, verify
+from . import common as C
 
 
 def default_layout(gen: str, variant: str) -> str:
@@ -44,7 +37,7 @@ def process(md: Path, args: argparse.Namespace) -> dict:
     probe.stage(run, pdf, mp3)
     ingest.stage(run, mp3)
     if args.engine == "whispercpp":
-        import align_whispercpp
+        from . import align_whispercpp
 
         align_whispercpp.stage(run, run.dir / "02_ingest")
     else:
@@ -63,14 +56,7 @@ def process(md: Path, args: argparse.Namespace) -> dict:
     return {"md": str(md), "run_id": run.run_id, "mp4": rendered["mp4"]}
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(
-        description=__doc__,
-        usage=(
-            "add.py <md file|dir> --media <audio file|dir> "
-            "[--pdf f.pdf | --gen-a4 | --gen-a5] [flags]"
-        ),
-    )
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target", help="standard .md file, or a directory of them")
     ap.add_argument(
         "--media",
@@ -118,8 +104,9 @@ def main() -> None:
         choices=["paragraph", "line"],
         help="highlight granularity: whole paragraph, or one PDF text line at a time",
     )
-    args = ap.parse_args()
 
+
+def run(args: argparse.Namespace) -> None:
     target = C.resolve_input(args.target)
     if target.is_dir():
         if args.media and Path(args.media).is_file():
@@ -155,7 +142,3 @@ def main() -> None:
     else:
         results = [process(target, args)]
         print(json.dumps(results, ensure_ascii=False, indent=2))
-
-
-if __name__ == "__main__":
-    main()

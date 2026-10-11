@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
+from . import common as C
 
 
 def timeline_qc(seg: dict) -> dict:
@@ -186,27 +184,24 @@ def stage(run: C.Run, align_dir: Path, ingest_dir: Path, pdf: Path | None) -> di
     return summary
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--pdf", default="")
     ap.add_argument("--pdf-variant", default="")
     ap.add_argument("--pdf-dir", default="")
-    args = ap.parse_args()
+
+
+def run(args: argparse.Namespace) -> None:
     target = C.require_file(C.resolve_input(args.target), "verify")
-    align = C.latest_stage(C.stem_of(target), "03_align", ready="align")
+    align = C.latest_stage(target, "03_align", ready="align")
     if not align:
-        raise SystemExit("no align run found; run `just align <target>` first")
+        raise SystemExit("no align run found; run `readalong align <target>` first")
     ingest = Path(
         json.loads((align.parent / "manifest.json").read_text(encoding="utf-8"))[
             "stages"
         ]["align"]["parent_ingest_run"]
     )
-    ingest = C.OUTPUT / ingest.name / "02_ingest"
+    ingest = C.runs_root(target) / ingest.name / "02_ingest"
     pdf = C.resolve_pdf(target, args.pdf, args.pdf_variant, args.pdf_dir)
     run = C.Run(target)
     print(json.dumps(stage(run, align, ingest, pdf), ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    main()

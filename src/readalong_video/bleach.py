@@ -5,11 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import _common as C
+from . import common as C
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 START_RE = re.compile(r"\*{3}\s*START OF (?:THE|THIS) PROJECT GUTENBERG", re.I)
@@ -162,14 +160,14 @@ def render(parsed: dict) -> tuple[str, dict]:
     return text, summary
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--style", default="gutenberg")
     ap.add_argument("--out", default="")
     ap.add_argument("--force", action="store_true")
-    args = ap.parse_args()
 
+
+def run(args: argparse.Namespace) -> None:
     src = C.require_file(C.resolve_input(args.target), "bleach")
     if args.style != "gutenberg":
         raise SystemExit(f"unsupported style: {args.style}")
@@ -185,7 +183,3 @@ def main() -> None:
     dst.write_text(text, encoding="utf-8", newline="\n")
     summary["out"] = str(dst)
     print(json.dumps(summary, ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    main()

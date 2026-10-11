@@ -8,16 +8,13 @@ Optional:  whisperX/faster-whisper + wav2vec2 weights (only for --engine
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import time
 from pathlib import Path
 
-os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = (
-    "0"  # host sets =1 without the package installed
-)
-
-from huggingface_hub import constants, snapshot_download  # noqa: E402
+from .align_whispercpp import DEFAULT_BIN, DEFAULT_MODEL
 
 REPOS = {
     "Systran/faster-whisper-large-v3": (
@@ -31,14 +28,15 @@ REPOS = {
 }
 
 MANUAL = """
-Automatic prefetch failed (network). Resolve manually, then rerun `just prefetch`:
+Automatic prefetch failed (network). Resolve manually, then rerun `readalong prefetch`:
 
-  A) install hf_transfer:  uv run python -m pip install hf_transfer
+  A) speed up with hf_transfer:
+       uv tool install --with hf_transfer readalong-video
   B) mirror + no hf_transfer:
        set "HF_HUB_ENABLE_HF_TRANSFER=0"
        set "HF_ENDPOINT=https://hf-mirror.com"
-       uv run hf download Systran/faster-whisper-large-v3
-       uv run hf download jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn
+       uvx --from "huggingface_hub[cli]" hf download Systran/faster-whisper-large-v3
+       uvx --from "huggingface_hub[cli]" hf download jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn
   C) place files into the HF cache yourself: %USERPROFILE%\\.cache\\huggingface\\hub
 """
 
@@ -57,6 +55,8 @@ whisper.cpp assets missing — required by the default align engine. Resolve man
 
 
 def _dir(repo: str) -> Path:
+    from huggingface_hub import constants
+
     return Path(constants.HF_HUB_CACHE) / ("models--" + repo.replace("/", "--"))
 
 
@@ -74,7 +74,17 @@ def installed(repo: str) -> bool:
     return False
 
 
-def fetch(retries: int = 6) -> bool:
+def fetch(retries: int = 6) -> bool | None:
+    """Fetch whisperX weights; None when huggingface_hub is unavailable (the
+    whisperx extra is not installed — only needed for --engine whisperx)."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        return None
+
+    # The host may set HF_HUB_ENABLE_HF_TRANSFER=1 without the package installed.
+    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
     for repo, (_, label) in REPOS.items():
         if installed(repo):
             print(f"OK    {repo}")
@@ -95,8 +105,6 @@ def fetch(retries: int = 6) -> bool:
 
 
 def wcpp_ready() -> tuple[bool, str]:
-    from align_whispercpp import DEFAULT_BIN, DEFAULT_MODEL
-
     if not DEFAULT_BIN.exists():
         return False, f"whisper-cli not found: {DEFAULT_BIN}"
     if not DEFAULT_MODEL.exists():
@@ -104,9 +112,11 @@ def wcpp_ready() -> tuple[bool, str]:
     return True, ""
 
 
-def main() -> None:
-    from align_whispercpp import DEFAULT_BIN, DEFAULT_MODEL
+def add_args(ap: argparse.ArgumentParser) -> None:
+    pass  # no flags
 
+
+def run(args: argparse.Namespace) -> None:
     ok, why = wcpp_ready()
     if not ok:
         print(why, file=sys.stderr)
@@ -114,12 +124,15 @@ def main() -> None:
         raise SystemExit(1)
     print(f"OK    whisper.cpp: {DEFAULT_BIN.name}")
     print(f"OK    whisper.cpp model: {DEFAULT_MODEL.name}")
-    if fetch():
+    status = fetch()
+    if status is None:
+        print(
+            "whisperX weights: skipped (install the whisperx extra to enable: "
+            "uv tool install 'readalong-video[whisperx]')"
+        )
+        return
+    if status:
         print("all model weights ready")
         return
     print(MANUAL, file=sys.stderr)
     print("whisperX weights missing — only needed for --engine whisperx; continuing")
-
-
-if __name__ == "__main__":
-    main()
