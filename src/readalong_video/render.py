@@ -687,8 +687,14 @@ def stage(
             "+faststart",  # moov at the head: progress-bar dragging works before full download
             "-c:a",
             "aac",
+            "-ar",
+            "44100",
             "-b:a",
+            "128k",
+            "-maxrate",
             "192k",
+            "-minrate",
+            "64k",
         ]
         + end_args
     )
