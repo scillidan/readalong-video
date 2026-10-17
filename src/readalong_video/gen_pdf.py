@@ -531,6 +531,27 @@ def process_figures(md_content):
     return "\n\n".join(out)
 
 
+def flatten_copy(src: Path, dst: Path) -> None:
+    """Copy an image into staging, flattening transparency over white.
+
+    xdvipdfmx embeds RGBA PNGs with a soft mask that does not round-trip
+    (rasterizers show a smeared/haloed image); opaque images are copied as-is."""
+    if src.suffix.lower() not in (".png",) or dst.exists():
+        if not dst.exists():
+            shutil.copy2(src, dst)
+        return
+    from PIL import Image
+
+    im = Image.open(src)
+    if im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info:
+        im = im.convert("RGBA")
+        bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+        im = Image.alpha_composite(bg, im)
+        im.convert("RGB").save(dst)
+    else:
+        shutil.copy2(src, dst)
+
+
 def get_image_source(content_dir):
     env_path = os.environ.get("POST_SOURCE")
     if env_path:
@@ -625,8 +646,7 @@ def process_markdown(md_path, output_dir):
             else:
                 dest_name = resolved.name
                 dest = images_dir / dest_name
-                if not dest.exists():
-                    shutil.copy2(resolved, dest)
+                flatten_copy(resolved, dest)
                 cdn_map[base] = dest_name
                 found_count += 1
                 print(f"  ✓ {dest_name}")
@@ -651,8 +671,7 @@ def process_markdown(md_path, output_dir):
                 missing.append(name)
         else:
             dest = images_dir / name
-            if not dest.exists():
-                shutil.copy2(src, dest)
+            flatten_copy(src, dest)
             found_count += 1
             print(f"  ✓ {name}")
 

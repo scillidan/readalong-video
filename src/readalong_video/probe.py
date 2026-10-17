@@ -54,16 +54,24 @@ def probe_pdf(pdf: Path | None) -> dict:
     pages, empty = [], []
     for i, page in enumerate(doc):
         chars = len(page.get_text("text").strip())
+        n_images = len(page.get_images())
         pages.append(
             {
                 "page": i + 1,
                 "chars": chars,
+                "images": n_images,
                 "size": [round(page.rect.width), round(page.rect.height)],
             }
         )
-        if chars < 5:
+        # an image-only sheet (illustrated books) is real content, not a
+        # text-extraction failure
+        if chars < 5 and not n_images:
             empty.append(i + 1)
     fonts = sorted({f[3] for f in doc[0].get_fonts()}) if doc.page_count else []
+    outline = [
+        {"level": level, "title": title, "page": page}
+        for level, title, page in doc.get_toc(simple=True)
+    ]
     doc.close()
     return {
         "status": "ok",
@@ -71,6 +79,7 @@ def probe_pdf(pdf: Path | None) -> dict:
         "page_count": len(pages),
         "pages": pages,
         "page1_fonts": fonts,
+        "outline": outline,
         "near_empty_pages": empty,
         "text_extractable": not empty,
     }
@@ -112,6 +121,7 @@ def stage(
             "status": pdf_info["status"],
             "page_count": pdf_info.get("page_count"),
             "text_extractable": pdf_info.get("text_extractable"),
+            "outline_entries": len(pdf_info.get("outline") or []),
         },
         "warnings": warning,
     }

@@ -43,6 +43,14 @@ def process(md: Path, args: argparse.Namespace) -> dict:
     else:
         align.stage(run, run.dir / "02_ingest")
     verify.stage(run, run.dir / "03_align", run.dir / "02_ingest", pdf)
+    skip_pages: set[int] = set()
+    if args.skip_pages:
+        if args.skip_pages.strip().lower() == "auto":
+            skip_pages, reasons = C.auto_skip_pages(pdf)
+            for r in reasons:
+                print(f"skip-pages auto: {r}")
+        else:
+            skip_pages = C.parse_page_ranges(args.skip_pages)
     rendered = render.stage(
         run,
         run.dir / "03_align",
@@ -53,6 +61,9 @@ def process(md: Path, args: argparse.Namespace) -> dict:
         args.output,
         args.dwell_s,
         args.mid_dwell_s,
+        skip_pages,
+        args.turn_dwell_s,
+        args.end_dwell_s,
     )
     report.stage(run)
     return {"md": str(md), "run_id": run.run_id, "mp4": rendered["mp4"]}
@@ -124,6 +135,28 @@ def add_args(ap: argparse.ArgumentParser) -> None:
         default=2.0,
         help="seconds per unread A5 page passed through mid-book or after "
         "the narration (chapter-end/book-end endnotes; 0 disables)",
+    )
+    ap.add_argument(
+        "--skip-pages",
+        default="",
+        metavar="RANGES|auto",
+        help="sheets never shown in the video: comma ranges like '1-3,7,12-' "
+        "(1-based), or 'auto' to derive front matter from the PDF outline "
+        "(needs a copys --outline/--toc PDF: pages before the first outline "
+        "target plus contents/copyright-titled entries)",
+    )
+    ap.add_argument(
+        "--turn-dwell-s",
+        type=float,
+        default=2.0,
+        help="seconds a cleared page lingers after its last paragraph before "
+        "the page turns (0 disables)",
+    )
+    ap.add_argument(
+        "--end-dwell-s",
+        type=float,
+        default=2.0,
+        help="seconds the final page lingers after the narration ends (0 disables)",
     )
 
 

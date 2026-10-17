@@ -69,6 +69,22 @@ readalong add <name.md> --media <audio.mp3> --pdf <file.pdf> --output D:/vids/x.
   pause always lands between paragraphs; trailing pages run after the
   narration ends. Column side is respected: `[endnotes | next chapter]`
   dwells before the chapter, `[chapter end | endnotes]` after it.
+- `--skip-pages 1-3,7,auto`: sheets never shown at all. `auto` derives the
+  front matter from the PDF outline (the copys `--outline`/`--toc` product):
+  every page before the first outline target plus pages whose outline title
+  looks like contents/copyright. Use it for 目录 pages that dwell would
+  otherwise show; explicit ranges work on any PDF, with or without outline.
+- `--turn-dwell-s` (default 2, `0` disables): after a page's last paragraph
+  the cleared page lingers this long before the page turns; the next page
+  then sits unlit until its audio starts (no more stale highlight frozen
+  until the next audio pops).
+- `--end-dwell-s` (default 2, `0` disables): the final page lingers this
+  long after the narration ends instead of stopping dead.
+- Audiobook audio with 开场白/结束语 (unmatched lead/tail): the unmatched
+  stretches simply play with no highlight. Trim such audio yourself before
+  running the pipeline (the pipeline never modifies media files).
+- Every output frame is a keyframe (`-g 1`) so progress-bar seeking lands
+  exactly; mp4 is muxed `+faststart`.
 - `--media` auto-detects a file or a directory. Directory pairing matches
   `<stem>.mp3` or `<stem>{reader}.mp3`; without `--media` the sibling `<stem>.mp3`
   is used.
@@ -122,6 +138,13 @@ Highlighting is layout-agnostic (text blocks are matched to the reference text).
 `--layout linear` assumes PDF page order equals reading order; `auto` (the default
 for booklets and unknown PDFs) recovers reading order from content. `--gen-a4` /
 `--gen-a5` / `--pdf-variant a4|a5` default to `linear`.
+
+**Outline**: reader PDFs from the copys pipeline can carry a nested PDF outline
+(`--outline` / `--toc`; probe reports the entry count). readalong uses it for
+`--skip-pages auto` (front-matter detection) — no outline means no auto skip,
+but explicit `--skip-pages` ranges always work. Illustrated books (whole-sheet
+or column artwork) need no extra handling: image-only sheets carry no matched
+text, so they are simply unhighlighted, and dwell logic passes through them.
 
 ### Highlight unit
 

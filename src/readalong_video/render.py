@@ -6,6 +6,7 @@ import argparse
 import bisect
 import difflib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -105,20 +106,28 @@ def _drop_index_blocks(blocks: list[dict]) -> list[dict]:
 
 
 def _front_dwell(
-    pdf: Path, pages_blocks: list[list[dict]], read_pages: set, dwell_ms: int
+    pdf: Path,
+    pages_blocks: list[list[dict]],
+    read_pages: set,
+    dwell_ms: int,
+    skip: set[int] | None = None,
 ) -> list[dict]:
     """Dwell frames for the leading unread pages: the video opens on page 1
     and lingers on each sheet not yet read, so the narration starts after a
     short pass-through. A wide (landscape 2-up) sheet counts its A5 columns
     separately, per the physical page count; the first partially read sheet
-    dwells only on its unread columns."""
+    dwells only on its unread columns. Skipped sheets (front matter the user
+    does not want shown at all) are passed over silently."""
     import pymupdf
 
     dwells = []
     if dwell_ms <= 0:
         return dwells
+    skip = skip or set()
     doc = pymupdf.open(str(pdf))
     for i, page in enumerate(doc):
+        if i in skip:
+            continue
         cols = 2 if page.rect.width > page.rect.height else 1
         if i in read_pages:  # first read sheet: dwell its unread columns, then stop
             half = page.rect.width / 2
@@ -140,6 +149,7 @@ def _mid_dwells(
     pages_blocks: list[list[dict]],
     units: list[dict],
     dwell_ms: int,
+    skip: set[int] | None = None,
 ) -> tuple[list, list]:
     """Dwells for unread sheets after the first narrated one (chapter-end /
     book-end endnotes, illustrations). Returns (mid, trailing): mid is
@@ -147,11 +157,13 @@ def _mid_dwells(
     at at_ms and frames at/after it are shifted; trailing is [{"page", "ms}]
     appended after the narration ends. Column sides are respected: an unread
     column left of the read one is passed through before the sheet's
-    narration, an unread column right of it after."""
+    narration, an unread column right of it after. Skipped sheets are never
+    shown."""
     import pymupdf
 
     if dwell_ms <= 0 or not units:
         return [], []
+    skip = skip or set()
     first_read = min(u["page"] for u in units)
     last_read = max(u["page"] for u in units)
     starts, ends = {}, {}
@@ -166,6 +178,8 @@ def _mid_dwells(
     mid, trail, floor = [], [], 0
     doc = pymupdf.open(str(pdf))
     for i in range(first_read + 1, doc.page_count):
+        if i in skip:
+            continue
         page = doc[i]
         cols = 2 if page.rect.width > page.rect.height else 1
         half = page.rect.width / 2
@@ -202,16 +216,16 @@ def _mid_dwells(
     return mid, trail
 
 
-def _audio_filter(
+def _splice_plan(
     duration_ms: int, lead_ms: int, mid: list, trail_ms: int
-) -> str | None:
-    """filter_complex that splices silence into the narration wav: the front
-    lead, a gap at each mid-book dwell point, and trailing silence. Dwells
-    falling at/before 0 or at/after the audio end fold into the lead/trailing
-    silence instead of a zero-length cut. Dwells sharing one splice instant
-    (a sheet's narration ends exactly where the next begins) merge into a
-    single silence. None = leave the audio untouched."""
-    points = []  # [(at, ms)] sorted, one entry per unique splice instant
+) -> tuple[int, list, int]:
+    """Resolve mid-book dwells into a concrete splice plan: folded lead /
+    trailing silence and [(at, ms)] points sorted, one entry per unique splice
+    instant. Dwells at/before 0 or at/after the audio end fold into the
+    lead/trailing silence; dwells sharing one instant (a sheet's narration
+    ends exactly where the next begins) merge into a single longer silence,
+    so no zero-length cut is ever emitted."""
+    points = []  # [(at, ms)], one entry per unique splice instant
     for at, ms, _ in sorted(mid, key=lambda m: m[0]):
         if at <= 0:
             lead_ms += ms
@@ -221,41 +235,67 @@ def _audio_filter(
             points[-1] = (at, points[-1][1] + ms)
         else:
             points.append((at, ms))
-    if not lead_ms and not points and not trail_ms:
-        return None
-    parts, labels = [], []
-    n = 0
+    return lead_ms, points, trail_ms
 
-    def sec(ms: int) -> str:
-        return f"{ms / 1000:.3f}"
 
-    def sil(dur_ms: int) -> None:
-        nonlocal n
-        n += 1
-        parts.append(
-            f"anullsrc=r=16000:cl=mono,atrim=0:{sec(dur_ms)},"
-            f"aformat=sample_fmts=s16[s{n}]"
-        )
-        labels.append(f"s{n}")
+def _audio_concat(
+    out: Path,
+    wav: Path,
+    lead_ms: int,
+    points: list,
+    trail_ms: int,
+) -> Path:
+    """concat list that splices silence into the narration wav: the front
+    lead, a gap at each dwell point, trailing silence. Plain stream concat on
+    purpose -- a filter_complex graph misbehaves here (its anullsrc segments
+    terminate early once -t/-shortest and the video encode join the command).
+    One generated silence wav is cut by duration directives; narration
+    segments are addressed by inpoint, exact at 16 kHz (ms -> whole samples)."""
+    sec = lambda ms: f"{ms / 1000:.3f}"  # noqa: E731
 
-    if lead_ms:
-        sil(lead_ms)
-    bounds = [0] + [at for at, _ in points] + [None]
-    for idx in range(len(bounds) - 1):
-        a, b = bounds[idx], bounds[idx + 1]
-        n += 1
-        lb = f"a{n}"
-        trim = f"[1:a]atrim={sec(a)}" + (f":{sec(b)}" if b is not None else "")
-        parts.append(f"{trim}[{lb}]")
-        labels.append(lb)
-        if idx < len(points):
-            sil(points[idx][1])
-    if trail_ms:
-        sil(trail_ms)
-    parts.append(
-        "".join(f"[{l}]" for l in labels) + f"concat=n={len(labels)}:v=0:a=1[aout]"
+    longest = max([lead_ms, trail_ms, *(ms for _, ms in points)])
+    sil = out / "silence.wav"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=16000:cl=mono",
+            "-t",
+            sec(longest),
+            str(sil),
+        ],
+        check=True,
     )
-    return ";".join(parts)
+    # relative name on purpose: the demuxer resolves it next to the list and
+    # special characters in the real path stay out of the file tokens
+    narration = out / "narration.wav"
+    shutil.copyfile(wav, narration)
+    lines, prev = [], 0
+    if lead_ms:
+        lines += [f"file '{sil.name}'", f"duration {sec(lead_ms)}"]
+    for at, ms in points:
+        lines += [
+            f"file '{narration.name}'",
+            f"inpoint {sec(prev)}",
+            f"duration {sec(at - prev)}",
+            f"file '{sil.name}'",
+            f"duration {sec(ms)}",
+        ]
+        prev = at
+    lines.append(f"file '{narration.name}'")
+    if prev:
+        lines.append(f"inpoint {sec(prev)}")
+    if trail_ms:
+        lines += [f"file '{sil.name}'", f"duration {sec(trail_ms)}"]
+    lst = out / "audio_concat.txt"
+    lst.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return lst
 
 
 def _paragraph_page(segments: dict, pages_blocks: list[list[dict]]) -> dict:
@@ -307,6 +347,9 @@ def stage(
     output: str = "",
     dwell_s: float = 2.0,
     mid_dwell_s: float = 2.0,
+    skip_pages: set[int] | None = None,
+    turn_dwell_s: float = 2.0,
+    end_dwell_s: float = 2.0,
 ) -> dict:
     out = run.stage("05_render")
     frames_dir = out / "frames"
@@ -385,6 +428,12 @@ def stage(
             if anchors:
                 t0 = anchors.at(base + rs, p["start_ms"], True)
                 t1 = anchors.at(base + re_ - 1, p["end_ms"], False)
+                # char anchors may leak into a neighbouring paragraph (equal
+                # runs wandering across short/shared passages): keep the whole
+                # highlight within this paragraph's own timed span (+-1 s)
+                lo, hi = p["start_ms"] - 1000, p["end_ms"] + 1000
+                t0 = min(max(t0, lo), hi)
+                t1 = min(max(t1, lo), hi)
             else:
                 span = p["end_ms"] - p["start_ms"]
                 t0 = round(p["start_ms"] + rs / len(text) * span)
@@ -422,10 +471,43 @@ def stage(
             prev = frames[-1]
             if prev["page"] == u["page"] and prev["rects"] == rects:
                 prev["t1"] = max(prev["t1"], u["t1"])
+                prev["narr_end"] = max(prev["narr_end"], u["t1"])
                 continue
             if u["t0"] > prev["t1"]:
                 prev["t1"] = u["t0"]
-        frames.append({"page": u["page"], "t0": u["t0"], "t1": u["t1"], "rects": rects})
+        frames.append(
+            {
+                "page": u["page"],
+                "t0": u["t0"],
+                "t1": u["t1"],
+                "rects": rects,
+                "narr_end": u["t1"],
+            }
+        )
+
+    # page-turn dwell: after a page's last paragraph, linger ~1s on the cleared
+    # page, then turn; the next page sits unlit until its audio starts --
+    # instead of holding the old highlight until the next audio appears
+    if turn_dwell_s > 0:
+        turn_ms = round(turn_dwell_s * 1000)
+        out_frames = []
+        for fr in frames:
+            if out_frames:
+                prev = out_frames[-1]
+                gap = fr["t0"] - prev["narr_end"]
+                if prev["rects"] and fr["page"] != prev["page"]:
+                    end = prev["narr_end"]
+                    prev["t1"] = end  # drop the freeze-extension; turn here
+                    turn_at = end + turn_ms if gap >= turn_ms else end
+                    out_frames.append({**prev, "rects": [], "t0": end, "t1": turn_at})
+                    if turn_at < fr["t0"]:
+                        out_frames.append(
+                            {**fr, "rects": [], "t0": turn_at, "t1": fr["t0"]}
+                        )
+            out_frames.append(fr)
+        for fr in out_frames:
+            fr.pop("narr_end", None)
+        frames = out_frames
 
     duration = timed["audio_duration_ms"]
     if frames[0]["t0"] > 0:
@@ -434,41 +516,67 @@ def stage(
         # the first unit ahead of time
         frames.insert(0, {**frames[0], "rects": [], "t0": 0, "t1": frames[0]["t0"]})
     if frames[-1]["t1"] < duration:
-        frames.append({**frames[-1], "t0": frames[-1]["t1"], "t1": duration})
+        # tail: narration is over (e.g. an outro with no text counterpart) --
+        # show the page but light nothing, like the lead-in
+        frames.append(
+            {**frames[-1], "rects": [], "t0": frames[-1]["t1"], "t1": duration}
+        )
+    if end_dwell_s > 0:
+        # let the final page linger a moment instead of stopping dead at the
+        # last audio sample
+        frames.append(
+            {
+                **frames[-1],
+                "rects": [],
+                "t0": frames[-1]["t1"],
+                "t1": frames[-1]["t1"] + round(end_dwell_s * 1000),
+            }
+        )
 
     # pass-through dwells: front-matter sheets open the video before the
     # narration; mid-book unread sheets (chapter-end endnotes etc.) splice
     # silence into the audio at the next paragraph boundary; trailing sheets
     # run after the narration ends. Frame times shift by the accumulated
     # silence; a frame ending exactly at a splice keeps the pre-splice time.
+    # Skipped sheets (1-based page numbers) never appear in any dwell list.
+    skip0 = {p - 1 for p in (skip_pages or set())}
     front = (
         _front_dwell(
-            pdf, pages_blocks, {f["page"] for f in frames}, round(dwell_s * 1000)
+            pdf,
+            pages_blocks,
+            {f["page"] for f in frames},
+            round(dwell_s * 1000),
+            skip0,
         )
         if dwell_s > 0
         else []
     )
     mid, trail = (
-        _mid_dwells(pdf, pages_blocks, units, round(mid_dwell_s * 1000))
+        _mid_dwells(pdf, pages_blocks, units, round(mid_dwell_s * 1000), skip0)
         if mid_dwell_s > 0
         else ([], [])
     )
     mid = sorted(mid, key=lambda m: m[0])
     lead_ms = sum(d["ms"] for d in front)
     trail_ms = sum(d["ms"] for d in trail)
+    lead_ms, points, trail_ms = _splice_plan(duration, lead_ms, mid, trail_ms)
+    # dwell frames show every in-range mid dwell (two dwells sharing one
+    # splice instant play back to back); narration frames shift by the merged
+    # plan totals, which is what the audio splice inserts
+    vis_mid = [(at, ms, page) for at, ms, page in mid if 0 < at < duration]
 
     def cum_start(t: int) -> int:
-        return lead_ms + sum(ms for at, ms, _ in mid if t >= at)
+        return lead_ms + sum(ms for at, ms in points if t >= at)
 
     def cum_end(t: int) -> int:
-        return lead_ms + sum(ms for at, ms, _ in mid if t > at)
+        return lead_ms + sum(ms for at, ms in points if t > at)
 
     extra, acc = [], 0
     for d in front:
         extra.append({"page": d["page"], "rects": [], "t0": acc, "t1": acc + d["ms"]})
         acc += d["ms"]
     run_shift = lead_ms
-    for at, ms, page in mid:
+    for at, ms, page in vis_mid:
         extra.append(
             {"page": page, "rects": [], "t0": at + run_shift, "t1": at + run_shift + ms}
         )
@@ -539,29 +647,52 @@ def stage(
         "0",
         "-i",
         str(out / "concat.txt"),
-        "-i",
-        str(ingest_dir / "audio_16k_mono.wav"),
-        "-vf",
-        "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "20",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
     ]
-    graph = _audio_filter(duration, lead_ms, mid, trail_ms)
-    if graph:
-        # silence spliced at the dwell points; explicit maps because
-        # filter_complex replaces the default stream selection
-        cmd += ["-filter_complex", graph, "-map", "0:v", "-map", "[aout]"]
-    cmd += ["-shortest", str(mp4)]
+    if points or lead_ms or trail_ms or end_dwell_s > 0:
+        # dwells exist: splice silence into the audio via a concat list. A
+        # filter_complex graph misbehaves here -- its anullsrc segments
+        # terminate early once -t/-shortest and the video encode join the
+        # command -- while the plain stream concat is exact (verified). The
+        # video concat loops its last frame, so -t pins the output length;
+        # the audio list itself ends exactly at total_ms.
+        trail_ms += round(end_dwell_s * 1000)  # end dwell = trailing silence,
+        # otherwise the muxer stops at the audio EOF and cuts the dwell frames
+        total_ms = duration + lead_ms + sum(ms for _, ms in points) + trail_ms
+        audio = _audio_concat(
+            out, ingest_dir / "audio_16k_mono.wav", lead_ms, points, trail_ms
+        )
+        cmd += ["-f", "concat", "-safe", "0", "-i", str(audio)]
+        end_args = ["-t", f"{total_ms / 1000:.3f}"]
+    else:
+        cmd += ["-i", str(ingest_dir / "audio_16k_mono.wav")]
+        end_args = ["-shortest"]
+    cmd += (
+        [
+            "-vf",
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "1",  # the concat input is a ~0.05fps slideshow: a time-based keyint
+            # yields a single keyframe at t=0 and seeking snaps back to start
+            "-x264-params",
+            "keyint=1:min-keyint=1",
+            "-movflags",
+            "+faststart",  # moov at the head: progress-bar dragging works before full download
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+        ]
+        + end_args
+    )
+    cmd.append(str(mp4))
     subprocess.run(cmd, check=True)
 
     summary = {
@@ -570,8 +701,9 @@ def stage(
         "timing": "char-anchors" if anchors else "linear-interp",
         "audio_duration_ms": duration,
         "front_dwell_ms": lead_ms,
-        "mid_dwells": len(mid),
+        "mid_dwells": len(vis_mid),
         "trailing_dwell_ms": trail_ms,
+        "skipped_pages": sorted(p for p in (skip_pages or set())),
         "frames": len(frames),
         "page_size": page_size,
         "pages_used": sorted({f["page"] + 1 for f in frames}),
@@ -620,6 +752,28 @@ def add_args(ap: argparse.ArgumentParser) -> None:
         help="seconds per unread A5 page passed through mid-book or after "
         "the narration (chapter-end/book-end endnotes; 0 disables)",
     )
+    ap.add_argument(
+        "--skip-pages",
+        default="",
+        metavar="RANGES|auto",
+        help="sheets never shown in the video: comma ranges like '1-3,7,12-' "
+        "(1-based), or 'auto' to derive front matter from the PDF outline "
+        "(needs a copys --outline/--toc PDF: pages before the first outline "
+        "target plus contents/copyright-titled entries)",
+    )
+    ap.add_argument(
+        "--turn-dwell-s",
+        type=float,
+        default=2.0,
+        help="seconds a cleared page lingers after its last paragraph before "
+        "the page turns (0 disables)",
+    )
+    ap.add_argument(
+        "--end-dwell-s",
+        type=float,
+        default=2.0,
+        help="seconds the final page lingers after the narration ends (0 disables)",
+    )
 
 
 def run(args: argparse.Namespace) -> None:
@@ -632,6 +786,14 @@ def run(args: argparse.Namespace) -> None:
     )["stages"]["align"]["parent_ingest_run"]
     ingest = C.runs_root(target) / ingest_name / "02_ingest"
     pdf = C.resolve_pdf(target, args.pdf, args.pdf_variant, args.pdf_dir)
+    skip_pages: set[int] = set()
+    if args.skip_pages:
+        if args.skip_pages.strip().lower() == "auto":
+            skip_pages, reasons = C.auto_skip_pages(pdf)
+            for r in reasons:
+                print(f"skip-pages auto: {r}")
+        else:
+            skip_pages = C.parse_page_ranges(args.skip_pages)
     run = C.Run(target)
     print(
         json.dumps(
@@ -645,6 +807,9 @@ def run(args: argparse.Namespace) -> None:
                 args.output,
                 args.dwell_s,
                 args.mid_dwell_s,
+                skip_pages,
+                args.turn_dwell_s,
+                args.end_dwell_s,
             ),
             ensure_ascii=False,
         )

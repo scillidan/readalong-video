@@ -68,6 +68,77 @@ def _audio_hits(directory: Path, stem: str) -> list[Path]:
     )
 
 
+def parse_page_ranges(spec: str) -> set[int]:
+    """`"1-3,7,12-"` -> {1,2,3,7,12,...}; open-ended ranges clamp later.
+
+    Page numbers are 1-based; an empty spec -> empty set."""
+    pages: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.fullmatch(r"(\d+)(?:-(\d*))?", part)
+        if not m:
+            raise SystemExit(f"bad page range: {part!r} (use e.g. 1-3,7,12-)")
+        a = int(m.group(1))
+        if m.group(2) is None:  # "7"
+            b = a
+        elif m.group(2) == "":  # "12-": open-ended
+            b = 1 << 30
+        else:  # "1-3"
+            b = int(m.group(2))
+        if b < a:
+            raise SystemExit(f"bad page range: {part!r} (end before start)")
+        pages.update(range(a, b + 1))
+    return pages
+
+
+# Outline titles marking front matter: their target pages (and, for `auto`,
+# every page before the first outline target) are skipped in render.
+FRONT_MATTER_TITLE_RE = re.compile(
+    r"目录|目錄|contents?|copyright|版权|版權|colophon|扉\s*页|扉\s*頁", re.IGNORECASE
+)
+
+
+def pdf_outline(pdf: Path) -> list[dict]:
+    """PDF outline (bookmarks) as [{level, title, page}] with 1-based pages."""
+    import pymupdf
+
+    doc = pymupdf.open(str(pdf))
+    toc = [{"level": l, "title": t, "page": p} for l, t, p in doc.get_toc(simple=True)]
+    doc.close()
+    return toc
+
+
+def auto_skip_pages(pdf: Path) -> tuple[set[int], list[str]]:
+    """Outline-derived front-matter pages: everything before the first outline
+    target plus pages whose outline title looks like contents/copyright.
+
+    Returns (1-based page set, human-readable reasons). Requires a non-empty
+    outline -- that is the contract with the copys pipeline (`--outline` /
+    `--toc` installs it), so a PDF without one fails loudly instead of
+    guessing."""
+    toc = pdf_outline(pdf)
+    if not toc:
+        raise SystemExit(
+            f"--skip-pages auto: {pdf.name} has no PDF outline; "
+            "rebuild it in copys with --outline/--toc, or pass explicit ranges"
+        )
+    reasons = []
+    skipped: set[int] = set()
+    first = min(e["page"] for e in toc)
+    if first > 1:
+        skipped.update(range(1, first))
+        reasons.append(f"pages 1-{first - 1} precede the first outline target")
+    for e in toc:
+        if FRONT_MATTER_TITLE_RE.search(e["title"]):
+            skipped.add(e["page"])
+            reasons.append(f"page {e['page']} = outline entry {e['title']!r}")
+    if not skipped:
+        reasons.append("outline starts at page 1; nothing to skip")
+    return skipped, reasons
+
+
 def resolve_media(md: Path, media: str, strict: bool = True) -> Path | None:
     """Pair an .md with its audio. `--media` may be a file or a directory
     (auto-detected). Directory/sibling pairing matches `<stem>.mp3` or
