@@ -76,9 +76,11 @@ def probe_pdf(pdf: Path | None) -> dict:
     }
 
 
-def stage(run: C.Run, pdf: Path | None, mp3: Path | None) -> dict:
+def stage(
+    run: C.Run, pdf: Path | None, mp3: Path | None, with_headings: bool = False
+) -> dict:
     out = run.stage("01_probe")
-    text_info = C.parse_md(run.target.read_text(encoding="utf-8"))
+    text_info = C.parse_md(run.target.read_text(encoding="utf-8"), with_headings)
     audio = probe_audio(mp3)
     pdf_info = probe_pdf(pdf)
 
@@ -121,6 +123,7 @@ def stage(run: C.Run, pdf: Path | None, mp3: Path | None) -> dict:
             "audio_status": audio["status"],
             "pdf_status": pdf_info["status"],
             "pdf_path": str(pdf) if pdf else None,
+            "with_headings": with_headings,
         },
     )
     return summary
@@ -132,6 +135,11 @@ def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--pdf", default="")
     ap.add_argument("--pdf-variant", default="")
     ap.add_argument("--pdf-dir", default="")
+    ap.add_argument(
+        "--with-headings",
+        action="store_true",
+        help="narration reads ## chapter titles aloud: anchor them too",
+    )
 
 
 def run(args: argparse.Namespace) -> None:
@@ -143,5 +151,5 @@ def run(args: argparse.Namespace) -> None:
         else None
     )
     r = C.Run(target)
-    summary = stage(r, pdf, mp3)
+    summary = stage(r, pdf, mp3, args.with_headings)
     print(json.dumps(summary, ensure_ascii=False))

@@ -9,9 +9,9 @@ from pathlib import Path
 from . import common as C
 
 
-def stage(run: C.Run, mp3: Path) -> dict:
+def stage(run: C.Run, mp3: Path, with_headings: bool = False) -> dict:
     out = run.stage("02_ingest")
-    doc = C.parse_md(run.target.read_text(encoding="utf-8"))
+    doc = C.parse_md(run.target.read_text(encoding="utf-8"), with_headings)
 
     rinsed_lines = [p["rinsed"] for p in doc["paragraphs"]]
     (out / "rinsed.txt").write_text(
@@ -48,6 +48,7 @@ def stage(run: C.Run, mp3: Path) -> dict:
             "footnote_defs": len(doc["footnote_defs"]),
         },
         "duration_ms": duration_ms,
+        "with_headings": with_headings,
     }
     run.set_stage(
         "ingest",
@@ -58,6 +59,7 @@ def stage(run: C.Run, mp3: Path) -> dict:
             "mp3": str(mp3),
             "wav": str(wav),
             "segments": str(out / "segments.json"),
+            "with_headings": with_headings,
             "summary": summary,
         },
     )
@@ -67,10 +69,15 @@ def stage(run: C.Run, mp3: Path) -> dict:
 def add_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("target")
     ap.add_argument("--media", default="", help="audio file or directory (see add)")
+    ap.add_argument(
+        "--with-headings",
+        action="store_true",
+        help="narration reads ## chapter titles aloud: anchor them too",
+    )
 
 
 def run(args: argparse.Namespace) -> None:
     target = C.require_file(C.resolve_input(args.target), "ingest")
     mp3 = C.resolve_media(target, args.media)
     run = C.Run(target)
-    print(json.dumps(stage(run, mp3), ensure_ascii=False))
+    print(json.dumps(stage(run, mp3, args.with_headings), ensure_ascii=False))

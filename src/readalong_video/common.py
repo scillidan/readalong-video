@@ -194,11 +194,14 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", "", text).lower()
 
 
-def parse_md(text: str) -> dict:
+def parse_md(text: str, with_headings: bool = False) -> dict:
     """Parse the standard .md contract into chapters / paragraphs / ignored ranges.
 
     Ignored (not narrated): leading metadata fenced blocks, footnote definitions.
     Paragraph display keeps inline `[^n]` markers; normalized strips them.
+    with_headings: also emit each `## heading` as a paragraph (is_heading=True)
+    for narrations that read chapter titles aloud; each chapter's first_para
+    then points at its heading paragraph.
     """
     lines = text.split("\n")
     total = len(lines)
@@ -239,6 +242,25 @@ def parse_md(text: str) -> dict:
                     "first_para": len(paragraphs),
                 }
             )
+            if with_headings:
+                title = heading.group(2).strip()
+                markers = [
+                    {"marker": m.group(0), "col": m.start()}
+                    for m in INLINE_MARKER_RE.finditer(title)
+                ]
+                rinsed = INLINE_MARKER_RE.sub("", title)
+                paragraphs.append(
+                    {
+                        "idx": len(paragraphs),
+                        "chapter": chapter_idx,
+                        "src_line": i,
+                        "display": title,
+                        "rinsed": rinsed.strip(),
+                        "normalized": normalize(rinsed),
+                        "inline_markers": markers,
+                        "is_heading": True,
+                    }
+                )
             continue
         fn_def = FOOTNOTE_DEF_RE.match(line.strip())
         if fn_def:
@@ -261,6 +283,7 @@ def parse_md(text: str) -> dict:
                 "rinsed": rinsed.strip(),
                 "normalized": normalize(rinsed),
                 "inline_markers": markers,
+                "is_heading": False,
             }
         )
 
@@ -275,6 +298,7 @@ def parse_md(text: str) -> dict:
         "stats": {
             "paragraphs": len(paragraphs),
             "chapters": len(chapters),
+            "headings": sum(1 for p in paragraphs if p["is_heading"]),
             "inline_markers": sum(len(p["inline_markers"]) for p in paragraphs),
             "footnote_defs": len(footnote_defs),
             "chars_display": sum(len(p["display"]) for p in paragraphs),

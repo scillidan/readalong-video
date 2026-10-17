@@ -34,8 +34,8 @@ def process(md: Path, args: argparse.Namespace) -> dict:
     layout = args.layout or default_layout(gen, args.pdf_variant)
 
     run = C.Run(md)
-    probe.stage(run, pdf, mp3)
-    ingest.stage(run, mp3)
+    probe.stage(run, pdf, mp3, args.with_headings)
+    ingest.stage(run, mp3, args.with_headings)
     if args.engine == "whispercpp":
         from . import align_whispercpp
 
@@ -51,6 +51,8 @@ def process(md: Path, args: argparse.Namespace) -> dict:
         args.unit,
         layout,
         args.output,
+        args.dwell_s,
+        args.mid_dwell_s,
     )
     report.stage(run)
     return {"md": str(md), "run_id": run.run_id, "mp4": rendered["mp4"]}
@@ -103,6 +105,25 @@ def add_args(ap: argparse.ArgumentParser) -> None:
         default="paragraph",
         choices=["paragraph", "line"],
         help="highlight granularity: whole paragraph, or one PDF text line at a time",
+    )
+    ap.add_argument(
+        "--with-headings",
+        action="store_true",
+        help="narration reads ## chapter titles aloud: anchor them too",
+    )
+    ap.add_argument(
+        "--dwell-s",
+        type=float,
+        default=2.0,
+        help="seconds per unread A5 page shown before the narration starts "
+        "(front-matter pass-through; 0 disables)",
+    )
+    ap.add_argument(
+        "--mid-dwell-s",
+        type=float,
+        default=2.0,
+        help="seconds per unread A5 page passed through mid-book or after "
+        "the narration (chapter-end/book-end endnotes; 0 disables)",
     )
 
 

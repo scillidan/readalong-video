@@ -55,6 +55,20 @@ readalong add <name.md> --media <audio.mp3> --pdf <file.pdf> --output D:/vids/x.
 ```
 
 - `<name.md>` / `<audio.mp3>` are explicit paths; run from any directory.
+- `--with-headings`: the narration reads `##` chapter titles aloud — headings
+  become anchor paragraphs, so titles align, get highlighted, and page turns
+  land on the chapter's first page. Off by default (headings are not narrated).
+- `--dwell-s` (default 2, `0` disables): the video opens on page 1 and
+  lingers on each unread leading page (copyright / colophon / contents — A5
+  columns on 2-up sheets count individually) before the narration starts;
+  the audio is delayed by the same total so the reading still starts on the
+  first body page.
+- `--mid-dwell-s` (default 2, `0` disables): same pass-through for unread
+  pages met later or at the end (chapter-end / book-end endnote pages).
+  Silence is spliced into the audio at the next paragraph boundary, so the
+  pause always lands between paragraphs; trailing pages run after the
+  narration ends. Column side is respected: `[endnotes | next chapter]`
+  dwells before the chapter, `[chapter end | endnotes]` after it.
 - `--media` auto-detects a file or a directory. Directory pairing matches
   `<stem>.mp3` or `<stem>{reader}.mp3`; without `--media` the sibling `<stem>.mp3`
   is used.
@@ -139,8 +153,12 @@ See `.env.example`.
 ## Input contract (standard .md)
 
 - Leading metadata fenced code block(s) — **not narrated**.
-- `##` headings split chapters (optional for short pieces).
+- `##` headings split chapters (optional for short pieces). With
+  `--with-headings` they are also narrated (anchored and highlighted);
+  otherwise they are typeset but not read.
 - One paragraph per line, two trailing spaces; blank lines between paragraphs.
 - Inline footnote markers `[^n]`; definitions `[^n]: …` collected at the end —
-  **not narrated** (rendered as endnotes by `gen-a4`/`gen-a5`).
+  **not narrated** (rendered as endnotes by `gen-a4`/`gen-a5`; endnote pages
+  carry no narration and are dropped by render, like the copyright /
+  contents front matter — see `--dwell-s` for showing them pre-roll).
 - Long works: one `.md` per chapter in a directory; process the directory.
