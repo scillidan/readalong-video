@@ -185,9 +185,13 @@ def _mid_dwells(
             hi = max(read_cols)
             unread = [c for c in range(cols) if c not in read_cols]
             if all(c > hi for c in unread):
-                at = ends[i]  # pass through after this sheet's narration
+                at = ends.get(i)  # pass through after this sheet's narration
             else:
-                at = starts[i]  # pass through before it
+                at = starts.get(i)  # pass through before it
+            if at is None:
+                # matched blocks but no unit landed here (duplicated text on
+                # another sheet won the page): splice before the next one
+                at = next_start(i, floor)
         if at is None:
             trail.append({"page": i, "ms": ms})
         else:
@@ -204,19 +208,26 @@ def _audio_filter(
     """filter_complex that splices silence into the narration wav: the front
     lead, a gap at each mid-book dwell point, and trailing silence. Dwells
     falling at/before 0 or at/after the audio end fold into the lead/trailing
-    silence instead of a zero-length cut. None = leave the audio untouched."""
-    mid = sorted(mid, key=lambda m: m[0])
-
-    def sec(ms: int) -> str:
-        return f"{ms / 1000:.3f}"
-
-    lead_ms += sum(ms for at, ms, _ in mid if at <= 0)
-    trail_ms += sum(ms for at, ms, _ in mid if at >= duration_ms)
-    mid = [(at, ms) for at, ms, _ in mid if 0 < at < duration_ms]
-    if not lead_ms and not mid and not trail_ms:
+    silence instead of a zero-length cut. Dwells sharing one splice instant
+    (a sheet's narration ends exactly where the next begins) merge into a
+    single silence. None = leave the audio untouched."""
+    points = []  # [(at, ms)] sorted, one entry per unique splice instant
+    for at, ms, _ in sorted(mid, key=lambda m: m[0]):
+        if at <= 0:
+            lead_ms += ms
+        elif at >= duration_ms:
+            trail_ms += ms
+        elif points and points[-1][0] == at:
+            points[-1] = (at, points[-1][1] + ms)
+        else:
+            points.append((at, ms))
+    if not lead_ms and not points and not trail_ms:
         return None
     parts, labels = [], []
     n = 0
+
+    def sec(ms: int) -> str:
+        return f"{ms / 1000:.3f}"
 
     def sil(dur_ms: int) -> None:
         nonlocal n
@@ -229,7 +240,7 @@ def _audio_filter(
 
     if lead_ms:
         sil(lead_ms)
-    bounds = [0] + [at for at, _ in mid] + [None]
+    bounds = [0] + [at for at, _ in points] + [None]
     for idx in range(len(bounds) - 1):
         a, b = bounds[idx], bounds[idx + 1]
         n += 1
@@ -237,8 +248,8 @@ def _audio_filter(
         trim = f"[1:a]atrim={sec(a)}" + (f":{sec(b)}" if b is not None else "")
         parts.append(f"{trim}[{lb}]")
         labels.append(lb)
-        if idx < len(mid):
-            sil(mid[idx][1])
+        if idx < len(points):
+            sil(points[idx][1])
     if trail_ms:
         sil(trail_ms)
     parts.append(
